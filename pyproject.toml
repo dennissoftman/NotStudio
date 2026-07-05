@@ -5,10 +5,21 @@ description = "Neural Radio is a project that uses AI to generate, manage and st
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "kokoro>=0.9.4",
+    "miniaudio>=1.71",
     "mutagen>=1.48.1",
     "pyloudnorm>=0.2.0",
+    "pysubs2>=1.8.1",
+    "soundfile>=0.14.0",
     "stable-audio-3",
     "torch>=2.7.1",
+    "tqdm>=4.68.3",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "ruff>=0.12.2",
 ]
 
 [tool.uv.workspace]
