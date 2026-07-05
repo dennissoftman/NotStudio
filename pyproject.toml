@@ -1,0 +1,18 @@
+[project]
+name = "neuralradio"
+version = "0.1.0"
+description = "Neural Radio is a project that uses AI to generate, manage and stream radio content."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mutagen>=1.48.1",
+    "pyloudnorm>=0.2.0",
+    "stable-audio-3",
+    "torch>=2.7.1",
+]
+
+[tool.uv.workspace]
+members = ["stable-audio-3"]
+
+[tool.uv.sources]
+stable-audio-3 = { workspace = true }

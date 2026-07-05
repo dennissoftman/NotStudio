@@ -1,0 +1,65 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+*.pyd
+*.so
+*.dylib
+*.dll
+build/
+dist/
+wheels/
+*.egg-info
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.python-version
+
+# Test, lint, and type-check caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Tooling caches
+.cache/
+
+# Notebook and runtime state
+.ipynb_checkpoints/
+
+# Logs and local env files
+*.log
+*.pid
+.env
+.env.*
+!.env.example
+
+# macOS / editor metadata
+.DS_Store
+.idea/
+.vscode/
+
+# audio files
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.cue
+
+# Common ML/artifact outputs
+checkpoints/
+runs/
+wandb/
+mlruns/
+tensorboard/
+outputs/
+output/
+tmp/
+temp/
