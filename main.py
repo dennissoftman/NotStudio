@@ -7,6 +7,7 @@ from pathlib import Path
 import torch
 import torchaudio
 from stable_audio_3 import StableAudioModel
+from stable_audio_3.model_configs import models
 from torchaudio.functional import resample
 
 from utils import normalize_loudness, tag_flac
@@ -70,6 +71,13 @@ def save_generated_audio(
     tag_flac(output_path, title, genre, prompt, track_number)
 
 
+def resolve_model_name(requested_model):
+    if requested_model != "auto":
+        return requested_model
+    has_accelerator = torch.cuda.is_available() or torch.backends.mps.is_available()
+    return "medium" if has_accelerator else "small-music"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate audio with Stable Audio 3.")
     parser.add_argument(
@@ -106,12 +114,20 @@ def main():
         const=None,
         help="Disable loudness normalization.",
     )
+    parser.add_argument(
+        "--model",
+        choices=["auto", *models],
+        default="auto",
+        help="Stable Audio 3 model to use. Defaults to medium on CUDA/MPS, small-music on CPU.",
+    )
     args = parser.parse_args()
 
     if not (bool(args.prompts) ^ bool(args.prompt)):
         parser.error("provide either a positional prompt or --prompts")
 
-    model = StableAudioModel.from_pretrained("medium")
+    model_name = resolve_model_name(args.model)
+    print(f"Loading model: {model_name}")
+    model = StableAudioModel.from_pretrained(model_name)
 
     if args.prompts:
         output_dir = Path(args.output) if args.output else Path(".")
