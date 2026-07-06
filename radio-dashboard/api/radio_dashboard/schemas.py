@@ -139,6 +139,17 @@ class ScheduleUpdate(BaseModel):
     trigger: dict[str, Any] | None = None
 
 
+# --- Announcements (breaking news / live reads) -------------------------------
+class AnnounceRequest(BaseModel):
+    """Render a short spoken message and air it on a live stream ASAP."""
+
+    text: str
+    voice: str | None = None
+    # Insert at the front of the buffer so it plays right after the current
+    # segment (breaking news). If false, append it after the queued audio.
+    play_next: bool = True
+
+
 # --- Misc responses -----------------------------------------------------------
 class BackendInfo(BaseModel):
     """Static capability info for a provider (drives the UI backend picker)."""

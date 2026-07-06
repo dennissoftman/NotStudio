@@ -53,6 +53,27 @@ async def next_sequence(session: AsyncSession, stream_id: str) -> int:
     return (top + 1) if top is not None else 0
 
 
+async def front_sequence(session: AsyncSession, stream_id: str) -> int:
+    """A sequence that sorts before all ready segments (breaking-news queue jump).
+
+    The engine plays the lowest-sequence ``ready`` segment next, so an
+    announcement placed here airs right after the current (``playing``) segment.
+    """
+    res = await session.execute(
+        select(PlayoutSegment.sequence)
+        .where(
+            PlayoutSegment.stream_id == stream_id,
+            PlayoutSegment.state == "ready",
+        )
+        .order_by(PlayoutSegment.sequence)
+        .limit(1)
+    )
+    lowest_ready = res.scalars().first()
+    if lowest_ready is None:
+        return await next_sequence(session, stream_id)
+    return lowest_ready - 1
+
+
 async def needs_batch(session: AsyncSession, stream: Stream) -> bool:
     """Should we enqueue another batch right now?"""
     if stream.status not in ("live", "buffering"):

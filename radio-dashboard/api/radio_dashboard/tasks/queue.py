@@ -15,6 +15,7 @@ from ..constants import utcnow
 from ..models import Job
 
 RENDER_BATCH_FUNCTION = "render_batch_job"
+RENDER_ANNOUNCEMENT_FUNCTION = "render_announcement_job"
 
 
 def redis_settings() -> RedisSettings:
@@ -52,6 +53,31 @@ async def submit_batch(
     await session.refresh(job)
 
     await pool.enqueue_job(RENDER_BATCH_FUNCTION, job.id, _job_id=job.id)
+    return job
+
+
+async def submit_announcement(
+    pool: ArqRedis,
+    session: AsyncSession,
+    *,
+    stream_id: str,
+    text: str,
+    voice: str | None = None,
+    play_next: bool = True,
+) -> Job:
+    """Create + enqueue a speech-only announcement job (breaking news / live read)."""
+    job = Job(
+        type="announcement",
+        status="queued",
+        stream_id=stream_id,
+        params={"text": text, "voice": voice, "play_next": play_next},
+        enqueued_at=utcnow(),
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    await pool.enqueue_job(RENDER_ANNOUNCEMENT_FUNCTION, job.id, _job_id=job.id)
     return job
 
 

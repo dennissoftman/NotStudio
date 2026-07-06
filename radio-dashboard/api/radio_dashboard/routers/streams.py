@@ -8,10 +8,10 @@ from sqlmodel import select
 from .. import buffer as buffer_mod
 from ..config import get_settings
 from ..constants import utcnow
-from ..deps import get_or_404, get_playout, get_session
-from ..models import PlayoutSegment, Stream
-from ..schemas import BufferStatus, StreamCreate, StreamUpdate
-from ..tasks.queue import submit_batch
+from ..deps import get_or_404, get_playout, get_pool, get_session
+from ..models import Job, PlayoutSegment, Stream
+from ..schemas import AnnounceRequest, BufferStatus, StreamCreate, StreamUpdate
+from ..tasks.queue import submit_announcement, submit_batch
 
 router = APIRouter(prefix="/streams", tags=["streams"])
 
@@ -156,6 +156,25 @@ async def list_segments(
         .order_by(PlayoutSegment.sequence)
     )
     return list(res.scalars().all())
+
+
+@router.post("/{stream_id}/announce", response_model=Job)
+async def announce(
+    stream_id: str,
+    payload: AnnounceRequest,
+    session: AsyncSession = Depends(get_session),
+    pool=Depends(get_pool),
+) -> Job:
+    """Air a short spoken announcement now (breaking news / live read, feature #2)."""
+    await get_or_404(session, Stream, stream_id)
+    return await submit_announcement(
+        pool,
+        session,
+        stream_id=stream_id,
+        text=payload.text,
+        voice=payload.voice,
+        play_next=payload.play_next,
+    )
 
 
 # --- live audio (feature #3) --------------------------------------------------

@@ -206,3 +206,107 @@ async def render_batch_job(ctx: dict[str, Any], job_id: str) -> dict[str, Any]:
         },
     )
     return {"history_item_id": item.id, "duration_seconds": result.duration}
+
+
+async def render_announcement_job(ctx: dict[str, Any], job_id: str) -> dict[str, Any]:
+    """Render a short spoken announcement now and drop it into the playout buffer.
+
+    Unlike batch renders (music + inserts, ~18 min, appended at the end), this
+    produces speech-only audio and — when ``play_next`` — inserts it at the FRONT
+    of the buffer so it airs right after the current segment (breaking news).
+    """
+    settings = get_settings()
+    await _update_job(job_id, status="in_progress", started_at=utcnow(), progress=0.1)
+
+    async with session_scope() as session:
+        job = await session.get(Job, job_id)
+        if job is None:
+            return {"error": "job row missing"}
+        stream = await session.get(Stream, job.stream_id) if job.stream_id else None
+        program = (
+            await session.get(Program, stream.program_id) if stream and stream.program_id else None
+        )
+        _music, speech_backend = await _resolve_backends(session, program)
+
+    params = job.params or {}
+    text = str(params.get("text", "")).strip()
+    voice = params.get("voice")
+    play_next = bool(params.get("play_next", True))
+    sample_rate = stream.sample_rate if stream else settings.sample_rate
+    channels = stream.channels if stream else settings.channels
+
+    if not text:
+        await _update_job(
+            job_id, status="failed", error="empty announcement text", finished_at=utcnow()
+        )
+        return {"error": "empty text"}
+
+    stop = threading.Event()
+
+    def work():
+        buf = speech_backend.synthesize(
+            text=text, sample_rate=sample_rate, channels=channels, voice=voice
+        )
+        return dsp.peak_limit(dsp.normalize_lufs(buf.data, sample_rate, -16.0))
+
+    try:
+        data = await _run_in_thread(stop, work)
+    except asyncio.CancelledError:
+        await _update_job(job_id, status="cancelled", finished_at=utcnow(), message="Cancelled")
+        raise
+    except Exception as exc:  # noqa: BLE001 — surface backend failure to the UI/agent
+        await _update_job(job_id, status="failed", error=str(exc), finished_at=utcnow())
+        raise
+
+    audio_path = settings.audio_dir / f"{job_id}.flac"
+    await asyncio.to_thread(dsp.write_audio_file, str(audio_path), data, sample_rate)
+    duration = len(data) / sample_rate
+    size = audio_path.stat().st_size if audio_path.exists() else 0
+
+    async with session_scope() as session:
+        item = HistoryItem(
+            kind="segment",
+            title=f"Announcement {job_id[:8]}",
+            stream_id=job.stream_id,
+            program_id=job.program_id,
+            job_id=job_id,
+            path=str(audio_path),
+            sample_rate=sample_rate,
+            channels=channels,
+            duration_seconds=duration,
+            size_bytes=size,
+            meta={"kind": "announcement", "text": text},
+        )
+        session.add(item)
+        if job.stream_id:
+            seq = await (
+                buffer_mod.front_sequence(session, job.stream_id)
+                if play_next
+                else buffer_mod.next_sequence(session, job.stream_id)
+            )
+            session.add(
+                PlayoutSegment(
+                    stream_id=job.stream_id,
+                    history_item_id=item.id,
+                    sequence=seq,
+                    duration_seconds=duration,
+                    state="ready",
+                )
+            )
+        await session.commit()
+        await session.refresh(item)
+        item_id = item.id
+
+    await _update_job(
+        job_id,
+        status="completed",
+        progress=1.0,
+        message="Announcement ready",
+        finished_at=utcnow(),
+        result={
+            "history_item_id": item_id,
+            "duration_seconds": duration,
+            "played_next": play_next,
+        },
+    )
+    return {"history_item_id": item_id, "duration_seconds": duration}

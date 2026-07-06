@@ -29,8 +29,10 @@ radio-dashboard/
 │       ├── audio/         # timeline builder + numpy mixer
 │       ├── tasks/         # arq worker + jobs + scheduler tick
 │       ├── streaming/     # real-time playout, HTTP/HLS, Icecast
-│       └── routers/       # REST API
-└── ui/                    # React + Vite + TypeScript dashboard
+│       ├── routers/       # REST API
+│       └── agent/         # LLM tool specs + system prompt + executor
+├── ui/                    # React + Vite + TypeScript dashboard
+└── agent/                 # LLM agent: JSON tool specs, system prompt, reference agent
 ```
 
 ## Quick start (local)
@@ -94,6 +96,32 @@ limits, per-mount auth); env vars can't change the listen port.
 **One public port/domain for both?** Icecast and the API are distinct servers,
 so combine them at the edge with a reverse proxy (Caddy/nginx or a Cloudflare
 Tunnel): route `/api` → FastAPI and a `stream.` subdomain (or a path) → Icecast.
+
+## LLM radio agent
+
+Automate the station with an LLM that calls the API. The **UI stays the human
+dashboard / override**; the agent handles routine operations and reacts to events.
+
+- Tool/function specs: `GET /api/agent/tools?format=gemini|openai|anthropic`
+  (default `gemini`; snapshotted in `agent/tools.*.json`).
+- System prompt: `GET /api/agent/system_prompt?with_state=true` (also
+  `agent/system_prompt.md`).
+- Live grounding: `GET /api/agent/state`; one-call bootstrap: `GET /api/agent/manifest`.
+- Run a tool in-process: `POST /api/agent/execute {name, input}`.
+
+The standout primitive is **`insert_announcement`** — render a short spoken message
+and air it right after the current segment (breaking news / live reads), vs.
+program edits that only affect batches 15–20 min out.
+
+Run the reference agent (a Gemini function-calling loop; default model
+`gemini-flash-latest`, `gemini-pro-latest` optional):
+
+```bash
+cd api && export GEMINI_API_KEY=...
+uv run --extra agent python ../agent/radio_agent.py "Break in on the main channel: storm warning until 9pm"
+```
+
+See `agent/README.md` for integration patterns and guardrails.
 
 ## Deploying to Cloudflare (later)
 

@@ -1,0 +1,1091 @@
+[
+  {
+    "name": "get_station_state",
+    "description": "Snapshot of the whole station: streams with live buffer status, active jobs, programs, backends and provider availability. ALWAYS call this first to ground yourself before acting.",
+    "input_schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_streams",
+    "description": "List all channels and their status.",
+    "input_schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "get_buffer_status",
+    "description": "Buffer readiness for one stream: ready_seconds vs min_seconds, whether a batch is generating, and segment counts.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "stream_id": {
+          "type": "string",
+          "description": "Stream id."
+        }
+      },
+      "required": [
+        "stream_id"
+      ]
+    }
+  },
+  {
+    "name": "list_jobs",
+    "description": "List generation jobs (most recent first). Optionally filter by stream or status (queued|in_progress|completed|failed|cancelled).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "stream_id": {
+          "type": "string",
+          "description": "Filter to one stream."
+        },
+        "status": {
+          "type": "string",
+          "description": "Filter by job status."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_job",
+    "description": "Fetch one job to track its status, progress and result/error.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "Job id."
+        }
+      },
+      "required": [
+        "job_id"
+      ]
+    }
+  },
+  {
+    "name": "list_programs",
+    "description": "List orchestration programs (recipes).",
+    "input_schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_backends",
+    "description": "List configured audio/TTS backends.",
+    "input_schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_providers",
+    "description": "List backend providers (mock/kokoro/stable_audio) and whether each is available in this environment.",
+    "input_schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_schedules",
+    "description": "List schedules.",
+    "input_schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_history",
+    "description": "List saved generated audio (batches + announcements), newest first.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "stream_id": {
+          "type": "string",
+          "description": "Filter to one stream."
+        }
+      }
+    }
+  },
+  {
+    "name": "insert_announcement",
+    "description": "Render a SHORT spoken message and air it on a LIVE stream immediately (breaking news, live read, time-sensitive info). With play_next=true it plays right after the current segment. Use this for timely one-off speech; use update_program for recurring content.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "stream_id": {
+          "type": "string",
+          "description": "Live stream to interrupt."
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "voice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Voice"
+        },
+        "play_next": {
+          "default": true,
+          "title": "Play Next",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "stream_id",
+        "text"
+      ]
+    }
+  },
+  {
+    "name": "create_backend",
+    "description": "Register an audio (music) or TTS (speech) backend. Provider mock needs no config; kokoro/stable_audio reuse the real engine.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "speech",
+            "music"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "mock",
+            "kokoro",
+            "stable_audio"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "provider"
+      ]
+    }
+  },
+  {
+    "name": "create_program",
+    "description": "Create an orchestration program: a music bed plus spoken inserts (news/info/ad/station_id/weather) with cadence, scripts, ducking.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "music_backend_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Music Backend Id"
+        },
+        "speech_backend_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speech Backend Id"
+        },
+        "config": {
+          "$ref": "#/$defs/ProgramConfig"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "$defs": {
+        "InsertSpec": {
+          "additionalProperties": true,
+          "description": "A spoken/asset element periodically woven into the music (feature #2).",
+          "properties": {
+            "kind": {
+              "default": "info",
+              "enum": [
+                "news",
+                "info",
+                "ad",
+                "station_id",
+                "jingle",
+                "weather"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "cadence_seconds": {
+              "default": 600.0,
+              "title": "Cadence Seconds",
+              "type": "number"
+            },
+            "texts": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Texts",
+              "type": "array"
+            },
+            "voice": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Voice"
+            },
+            "asset": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Asset"
+            },
+            "ducking": {
+              "default": true,
+              "title": "Ducking",
+              "type": "boolean"
+            },
+            "bed_volume_db": {
+              "default": -8.0,
+              "title": "Bed Volume Db",
+              "type": "number"
+            },
+            "insert_volume_db": {
+              "default": 0.0,
+              "title": "Insert Volume Db",
+              "type": "number"
+            }
+          },
+          "title": "InsertSpec",
+          "type": "object"
+        },
+        "MusicSpec": {
+          "additionalProperties": true,
+          "properties": {
+            "prompts": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Prompts",
+              "type": "array"
+            },
+            "genre": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Genre"
+            },
+            "track_seconds": {
+              "default": 210.0,
+              "title": "Track Seconds",
+              "type": "number"
+            },
+            "crossfade_seconds": {
+              "default": 4.0,
+              "title": "Crossfade Seconds",
+              "type": "number"
+            }
+          },
+          "title": "MusicSpec",
+          "type": "object"
+        },
+        "ProgramConfig": {
+          "additionalProperties": true,
+          "properties": {
+            "target_lufs": {
+              "default": -16.0,
+              "title": "Target Lufs",
+              "type": "number"
+            },
+            "crossfade_seconds": {
+              "default": 4.0,
+              "title": "Crossfade Seconds",
+              "type": "number"
+            },
+            "music": {
+              "$ref": "#/$defs/MusicSpec"
+            },
+            "inserts": {
+              "items": {
+                "$ref": "#/$defs/InsertSpec"
+              },
+              "title": "Inserts",
+              "type": "array"
+            }
+          },
+          "title": "ProgramConfig",
+          "type": "object"
+        }
+      }
+    }
+  },
+  {
+    "name": "update_program",
+    "description": "Update a program's music, inserts or backends. Affects FUTURE batches only (15-20 min out) \u2014 not currently-playing audio.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "program_id": {
+          "type": "string",
+          "description": "Program id."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "music_backend_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Music Backend Id"
+        },
+        "speech_backend_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speech Backend Id"
+        },
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProgramConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "program_id"
+      ],
+      "$defs": {
+        "InsertSpec": {
+          "additionalProperties": true,
+          "description": "A spoken/asset element periodically woven into the music (feature #2).",
+          "properties": {
+            "kind": {
+              "default": "info",
+              "enum": [
+                "news",
+                "info",
+                "ad",
+                "station_id",
+                "jingle",
+                "weather"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "cadence_seconds": {
+              "default": 600.0,
+              "title": "Cadence Seconds",
+              "type": "number"
+            },
+            "texts": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Texts",
+              "type": "array"
+            },
+            "voice": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Voice"
+            },
+            "asset": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Asset"
+            },
+            "ducking": {
+              "default": true,
+              "title": "Ducking",
+              "type": "boolean"
+            },
+            "bed_volume_db": {
+              "default": -8.0,
+              "title": "Bed Volume Db",
+              "type": "number"
+            },
+            "insert_volume_db": {
+              "default": 0.0,
+              "title": "Insert Volume Db",
+              "type": "number"
+            }
+          },
+          "title": "InsertSpec",
+          "type": "object"
+        },
+        "MusicSpec": {
+          "additionalProperties": true,
+          "properties": {
+            "prompts": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Prompts",
+              "type": "array"
+            },
+            "genre": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Genre"
+            },
+            "track_seconds": {
+              "default": 210.0,
+              "title": "Track Seconds",
+              "type": "number"
+            },
+            "crossfade_seconds": {
+              "default": 4.0,
+              "title": "Crossfade Seconds",
+              "type": "number"
+            }
+          },
+          "title": "MusicSpec",
+          "type": "object"
+        },
+        "ProgramConfig": {
+          "additionalProperties": true,
+          "properties": {
+            "target_lufs": {
+              "default": -16.0,
+              "title": "Target Lufs",
+              "type": "number"
+            },
+            "crossfade_seconds": {
+              "default": 4.0,
+              "title": "Crossfade Seconds",
+              "type": "number"
+            },
+            "music": {
+              "$ref": "#/$defs/MusicSpec"
+            },
+            "inserts": {
+              "items": {
+                "$ref": "#/$defs/InsertSpec"
+              },
+              "title": "Inserts",
+              "type": "array"
+            }
+          },
+          "title": "ProgramConfig",
+          "type": "object"
+        }
+      }
+    }
+  },
+  {
+    "name": "create_stream",
+    "description": "Create a channel bound to a program, with buffer/batch settings and optional Icecast publishing.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "program_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Program Id"
+        },
+        "sample_rate": {
+          "default": 44100,
+          "title": "Sample Rate",
+          "type": "integer"
+        },
+        "channels": {
+          "default": 2,
+          "title": "Channels",
+          "type": "integer"
+        },
+        "buffer_min_seconds": {
+          "default": 900.0,
+          "title": "Buffer Min Seconds",
+          "type": "number"
+        },
+        "batch_target_seconds": {
+          "default": 1080.0,
+          "title": "Batch Target Seconds",
+          "type": "number"
+        },
+        "batch_max_seconds": {
+          "default": 1200.0,
+          "title": "Batch Max Seconds",
+          "type": "number"
+        },
+        "icecast": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IcecastConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "$defs": {
+        "IcecastConfig": {
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "host": {
+              "default": "localhost",
+              "title": "Host",
+              "type": "string"
+            },
+            "port": {
+              "default": 8010,
+              "title": "Port",
+              "type": "integer"
+            },
+            "mount": {
+              "default": "/neural.mp3",
+              "title": "Mount",
+              "type": "string"
+            },
+            "username": {
+              "default": "source",
+              "title": "Username",
+              "type": "string"
+            },
+            "password": {
+              "default": "hackme",
+              "title": "Password",
+              "type": "string"
+            },
+            "format": {
+              "default": "mp3",
+              "enum": [
+                "mp3",
+                "ogg"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          "title": "IcecastConfig",
+          "type": "object"
+        }
+      }
+    }
+  },
+  {
+    "name": "update_stream",
+    "description": "Update a stream's program, buffer policy or Icecast config.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "stream_id": {
+          "type": "string",
+          "description": "Stream id."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "program_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Program Id"
+        },
+        "buffer_min_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Buffer Min Seconds"
+        },
+        "batch_target_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Target Seconds"
+        },
+        "batch_max_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Max Seconds"
+        },
+        "icecast": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IcecastConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "stream_id"
+      ],
+      "$defs": {
+        "IcecastConfig": {
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "host": {
+              "default": "localhost",
+              "title": "Host",
+              "type": "string"
+            },
+            "port": {
+              "default": 8010,
+              "title": "Port",
+              "type": "integer"
+            },
+            "mount": {
+              "default": "/neural.mp3",
+              "title": "Mount",
+              "type": "string"
+            },
+            "username": {
+              "default": "source",
+              "title": "Username",
+              "type": "string"
+            },
+            "password": {
+              "default": "hackme",
+              "title": "Password",
+              "type": "string"
+            },
+            "format": {
+              "default": "mp3",
+              "enum": [
+                "mp3",
+                "ogg"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          "title": "IcecastConfig",
+          "type": "object"
+        }
+      }
+    }
+  },
+  {
+    "name": "start_stream",
+    "description": "Take a stream live: begins real-time playout and seeds buffer generation.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "stream_id": {
+          "type": "string",
+          "description": "Stream id."
+        }
+      },
+      "required": [
+        "stream_id"
+      ]
+    }
+  },
+  {
+    "name": "stop_stream",
+    "description": "Take a stream off the air (stops playout). Disruptive \u2014 only when intended.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "stream_id": {
+          "type": "string",
+          "description": "Stream id."
+        }
+      },
+      "required": [
+        "stream_id"
+      ]
+    }
+  },
+  {
+    "name": "submit_job",
+    "description": "Submit a generation batch for a stream (buffers ahead) or a one-off render for a program. Use params.target_seconds to size it.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "default": "batch",
+          "enum": [
+            "batch",
+            "oneoff",
+            "program_render"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "stream_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stream Id"
+        },
+        "program_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Program Id"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        }
+      }
+    }
+  },
+  {
+    "name": "cancel_job",
+    "description": "Cancel a queued or running job.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "Job id."
+        }
+      },
+      "required": [
+        "job_id"
+      ]
+    }
+  },
+  {
+    "name": "create_schedule",
+    "description": "Schedule recurring/one-shot actions: render_batch, start_stream or stop_stream, via interval (seconds), cron (5-field, UTC) or date (run_at).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "action": {
+          "default": "render_batch",
+          "enum": [
+            "render_batch",
+            "start_stream",
+            "stop_stream"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "program_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Program Id"
+        },
+        "stream_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stream Id"
+        },
+        "trigger_type": {
+          "default": "interval",
+          "enum": [
+            "cron",
+            "interval",
+            "date"
+          ],
+          "title": "Trigger Type",
+          "type": "string"
+        },
+        "trigger": {
+          "additionalProperties": true,
+          "title": "Trigger",
+          "type": "object"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "update_schedule",
+    "description": "Enable/disable or retime a schedule.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "schedule_id": {
+          "type": "string",
+          "description": "Schedule id."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "trigger_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "cron",
+                "interval",
+                "date"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trigger Type"
+        },
+        "trigger": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trigger"
+        }
+      },
+      "required": [
+        "schedule_id"
+      ]
+    }
+  },
+  {
+    "name": "delete_schedule",
+    "description": "Delete a schedule.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "schedule_id": {
+          "type": "string",
+          "description": "Schedule id."
+        }
+      },
+      "required": [
+        "schedule_id"
+      ]
+    }
+  }
+]

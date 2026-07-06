@@ -16,6 +16,7 @@ dependencies = [
     "soundfile>=0.12",
     "pyloudnorm>=0.1.1",
     "python-multipart>=0.0.9",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,10 @@ dependencies = [
 real = [
     "torch>=2.2",
     "torchaudio>=2.2",
+]
+# The reference LLM radio agent (../agent/radio_agent.py) uses the Google Gen AI SDK.
+agent = [
+    "google-genai>=1.0",
 ]
 
 [project.scripts]
