@@ -38,21 +38,26 @@ radio-dashboard/
 Everything runs on a **mock backend** out of the box — no model downloads, no GPU.
 
 ```bash
-# 0. Infra: Redis (arq needs it)
-cd radio-dashboard
-docker compose up -d redis
-
-# 1. API + worker (two terminals), from radio-dashboard/api
-cd api
-uv sync
-uv run uvicorn radio_dashboard.main:app --reload --port 8000   # terminal A
-uv run arq radio_dashboard.tasks.worker.WorkerSettings          # terminal B
-
-# 2. UI, from radio-dashboard/ui
-cd ../ui
-npm install
-npm run dev            # http://localhost:5173  (proxies /api -> :8000)
+cd radio-dashboard/ui && npm install          # once, for the UI
+cd ../api && uv sync
+uv run dev                                     # Redis + API + worker + UI, together
 ```
+
+`uv run dev` brings up **Redis** (via `docker compose`), the **API** (:8000), the
+**arq worker**, and the **Vite UI** (:5173) with prefixed logs; Ctrl-C stops
+everything. Flags: `--no-ui`, `--no-worker`, `--no-redis`, `--api-port N`.
+
+Prefer separate terminals? Run the pieces by hand:
+
+```bash
+cd radio-dashboard && docker compose up -d redis                 # Redis (arq needs it)
+cd api && uv sync
+uv run uvicorn radio_dashboard.main:app --reload --port 8000     # terminal A
+uv run arq radio_dashboard.tasks.worker.WorkerSettings           # terminal B
+cd ../ui && npm install && npm run dev                           # terminal C -> :5173 (proxies /api -> :8000)
+```
+
+Tests: `uv run pytest` (from `api/`).
 
 Open http://localhost:5173, create a Program, create a Stream, press **Go Live**.
 The buffer manager generates 18-min batches ahead of playout; the player streams
@@ -68,14 +73,27 @@ heavy deps are duplicated into this subproject's environment.
 
 ## Icecast (feature #3)
 
-HTTP MP3 + HLS work with no extra services. To also publish to Icecast:
+HTTP MP3 + HLS work with no extra services. Icecast is an **optional, separate
+server**, so it can't share the API's port — the API owns **:8000** and Icecast
+runs on **:8010**:
 
 ```bash
-docker compose --profile icecast up -d icecast   # http://localhost:8000
+docker compose --profile icecast up -d icecast   # listeners: http://localhost:8010/<mount>
 ```
 
-Then set a stream's `icecast` config (`enabled: true`, host/port/mount/credentials).
-The publisher spawns an `ffmpeg` process that pushes the live PCM to the mount.
+Then set a stream's `icecast` config (`enabled: true`; `port: 8010`, mount and
+credentials already default to match). The backend spawns an `ffmpeg` process
+that pushes the live PCM to the mount; listeners tune in at
+`http://localhost:8010/neural.mp3`.
+
+**No `icecast.xml` mount is needed** — the `libretime/icecast` image patches its
+`/etc/icecast.xml` from the `ICECAST_*` env vars in `docker-compose.yml`. Mount
+your own config only for advanced control (custom listen port, extra mounts,
+limits, per-mount auth); env vars can't change the listen port.
+
+**One public port/domain for both?** Icecast and the API are distinct servers,
+so combine them at the edge with a reverse proxy (Caddy/nginx or a Cloudflare
+Tunnel): route `/api` → FastAPI and a `stream.` subdomain (or a path) → Icecast.
 
 ## Deploying to Cloudflare (later)
 

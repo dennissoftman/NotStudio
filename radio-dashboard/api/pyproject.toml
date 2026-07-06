@@ -26,6 +26,10 @@ real = [
     "torchaudio>=2.2",
 ]
 
+[project.scripts]
+# `uv run dev` — Redis (via docker) + API + arq worker + Vite UI, one command.
+dev = "radio_dashboard.dev:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

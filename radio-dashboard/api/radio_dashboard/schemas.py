@@ -84,7 +84,7 @@ class IcecastConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     enabled: bool = False
     host: str = "localhost"
-    port: int = 8000
+    port: int = 8010  # Icecast host port (docker maps 8010->container 8000; API owns 8000)
     mount: str = "/neural.mp3"
     username: str = "source"
     password: str = "hackme"

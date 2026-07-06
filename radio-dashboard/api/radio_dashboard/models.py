@@ -68,7 +68,7 @@ class Stream(SQLModel, table=True):
     batch_target_seconds: float = 1080.0
     batch_max_seconds: float = 1200.0
     # Optional Icecast publish target (feature #3), e.g.
-    # {"enabled": true, "host": "localhost", "port": 8000, "mount": "/neural.mp3",
+    # {"enabled": true, "host": "localhost", "port": 8010, "mount": "/neural.mp3",
     #  "username": "source", "password": "hackme", "format": "mp3"}
     icecast: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = Field(default_factory=utcnow)

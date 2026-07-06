@@ -160,7 +160,7 @@ function CreateModal({ onClose }: { onClose: () => void }) {
   const [ice, setIce] = useState(false);
   const [iceCfg, setIceCfg] = useState({
     host: "localhost",
-    port: 8000,
+    port: 8010,
     mount: "/neural.mp3",
     username: "source",
     password: "hackme",
