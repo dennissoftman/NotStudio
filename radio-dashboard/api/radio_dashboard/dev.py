@@ -126,6 +126,12 @@ class _Proc:
             pass
 
 
+def _port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.3)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
 def main() -> None:
     args = set(sys.argv[1:])
     if "--help" in args or "-h" in args:
@@ -137,6 +143,17 @@ def main() -> None:
     if "--api-port" in argv:
         api_port = argv[argv.index("--api-port") + 1]
 
+    # Refuse to start over a stale instance: if the port is taken, the API would
+    # fail to bind while the worker still runs, and the UI would silently talk to
+    # the old process (possibly on a different DB -> "job row missing").
+    if _port_in_use(int(api_port)):
+        _log(
+            "dev",
+            f"port {api_port} is already in use — another instance is running. "
+            "Stop it (`pkill -9 -f radio_dashboard`) or pass --api-port. Aborting.",
+        )
+        return
+
     if "--no-redis" not in args:
         _ensure_redis()
 
@@ -144,7 +161,13 @@ def main() -> None:
     procs: list[_Proc] = [
         _Proc(
             "api",
-            [str(bindir / "uvicorn"), "radio_dashboard.main:app", "--reload", "--port", api_port],
+            [
+                str(bindir / "uvicorn"),
+                "radio_dashboard.main:app",
+                "--reload",
+                "--port",
+                api_port,
+            ],
             _API_DIR,
         )
     ]
