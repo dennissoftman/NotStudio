@@ -172,15 +172,12 @@ def main() -> None:
         )
     ]
     if "--no-worker" not in args:
+        # No --watch: a code-change reload cancels any in-flight (multi-minute)
+        # generation/render job. Restart `uv run dev` to pick up worker changes.
         procs.append(
             _Proc(
                 "worker",
-                [
-                    str(bindir / "arq"),
-                    "radio_dashboard.tasks.worker.WorkerSettings",
-                    "--watch",
-                    "radio_dashboard",
-                ],
+                [str(bindir / "arq"), "radio_dashboard.tasks.worker.WorkerSettings"],
                 _API_DIR,
             )
         )

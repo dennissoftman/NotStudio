@@ -11,6 +11,7 @@ from typing import Any
 
 from arq import cron
 
+from ..config import get_settings
 from ..db import init_db
 from .jobs import (
     generate_tracks_job,
@@ -38,4 +39,7 @@ class WorkerSettings:
     allow_abort_jobs = True  # enables job.abort() -> cancel
     max_tries = 2
     keep_result = 3600
+    # Generation / video renders run for minutes — don't let arq's 300s default
+    # cancel them mid-run.
+    job_timeout = get_settings().job_timeout_seconds
     on_startup = startup

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
 
     # Redis / arq ----------------------------------------------------------
     redis_url: str = "redis://localhost:6379"
+    # Max seconds a single job may run before arq cancels it. Track generation and
+    # video renders take minutes, so this must sit well above arq's 300s default.
+    job_timeout_seconds: int = 7200
 
     # CORS -----------------------------------------------------------------
     cors_origins: list[str] = [
