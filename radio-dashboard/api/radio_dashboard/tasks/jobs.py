@@ -320,7 +320,9 @@ async def generate_tracks_job(ctx: dict[str, Any], job_id: str) -> dict[str, Any
     load for all prompts); the mock provider renders in-process per prompt.
     """
     settings = get_settings()
-    await _update_job(job_id, status="in_progress", started_at=utcnow(), progress=0.1)
+    await _update_job(
+        job_id, status="in_progress", started_at=utcnow(), progress=0.05, message="Preparing…"
+    )
 
     async with session_scope() as session:
         job = await session.get(Job, job_id)
@@ -336,23 +338,42 @@ async def generate_tracks_job(ctx: dict[str, Any], job_id: str) -> dict[str, Any
         await _update_job(job_id, status="failed", error="no prompts", finished_at=utcnow())
         return {"error": "no prompts"}
 
+    total = len(prompts)
+    progress: dict[str, Any] = {"frac": 0.05, "msg": "Preparing…"}
     stop = threading.Event()
+
+    def on_progress(frac: float, msg: str) -> None:
+        progress["frac"], progress["msg"] = frac, msg
+
+    async def mirror_progress() -> None:
+        while True:
+            await asyncio.sleep(1.5)
+            await _update_job(
+                job_id, progress=float(progress["frac"]), message=str(progress["msg"])
+            )
 
     def work() -> list[tuple[dict[str, Any], Any]]:
         rendered: list[tuple[dict[str, Any], Any]] = []
         if provider == "stable_audio":
             from ..backends.stable_audio import generate_batch
 
+            on_progress(0.1, "Loading model…")
             produced = generate_batch(
-                prompts, sample_rate=sr, model=model, out_dir=settings.audio_dir / f"gen-{job_id}"
+                prompts,
+                sample_rate=sr,
+                model=model,
+                out_dir=settings.audio_dir / f"gen-{job_id}",
+                on_progress=on_progress,
             )
-            for spec, path in produced:
+            for i, (spec, path) in enumerate(produced, start=1):
+                on_progress(0.95, f"Importing track {i}/{len(produced)}")
                 rendered.append((spec, dsp.load_audio_file(str(path), sr, ch)))
         else:
             backend = MockMusicBackend()
-            for spec in prompts:
+            for i, spec in enumerate(prompts):
                 if stop.is_set():
                     raise JobCancelled()
+                on_progress(0.1 + 0.85 * i / total, f"Rendering {i + 1}/{total}")
                 buf = backend.generate_music(
                     prompt=spec.get("prompt", ""),
                     duration=float(spec.get("duration", 180)),
@@ -362,6 +383,7 @@ async def generate_tracks_job(ctx: dict[str, Any], job_id: str) -> dict[str, Any
                 rendered.append((spec, buf.data))
         return rendered
 
+    mirror = asyncio.create_task(mirror_progress())
     try:
         rendered = await _run_in_thread(stop, work)
     except asyncio.CancelledError:
@@ -373,6 +395,8 @@ async def generate_tracks_job(ctx: dict[str, Any], job_id: str) -> dict[str, Any
     except Exception as exc:  # noqa: BLE001
         await _update_job(job_id, status="failed", error=str(exc), finished_at=utcnow())
         raise
+    finally:
+        mirror.cancel()
 
     track_ids: list[str] = []
     async with session_scope() as session:
