@@ -12,7 +12,12 @@ from typing import Any
 from arq import cron
 
 from ..db import init_db
-from .jobs import render_announcement_job, render_batch_job
+from .jobs import (
+    generate_tracks_job,
+    make_video_job,
+    render_announcement_job,
+    render_batch_job,
+)
 from .queue import redis_settings
 from .scheduler import buffer_tick, schedule_tick
 
@@ -22,7 +27,7 @@ async def startup(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [render_batch_job, render_announcement_job]
+    functions = [render_batch_job, render_announcement_job, generate_tracks_job, make_video_job]
     cron_jobs = [
         # Top up stream buffers every 15s (feature #4).
         cron(buffer_tick, second=set(range(0, 60, 15)), run_at_startup=True, unique=True),

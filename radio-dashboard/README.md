@@ -1,22 +1,26 @@
-# Radio Dashboard
+# Neural Radio Studio
 
-A full-stack control panel for **Neural Radio** — schedule and manage generation
-jobs, configure audio/TTS backends, orchestrate radio programs (music with
-inserted news / info messages / ads / station IDs), keep a history of everything
-generated, and stream a continuous channel using a **pre-allocated buffer**
-(generate 15–20 min ahead, always keep ≥ 15 min ready).
+A simple **Studio** UI to generate AI music tracks from prompts and turn them into
+YouTube-ready videos — on top of a full FastAPI backend that also does radio
+automation (scheduling, pluggable backends, program orchestration, buffered
+HTTP/HLS/Icecast streaming) and an **LLM agent** control surface.
+
+The **UI is two clicks**: **Generate** (paste a prompt list → tracks land in the
+library) and **Library** (tick tracks → crossfade → video). The **API** keeps the
+broader radio/agent feature set for programmatic use.
 
 This is a *subproject* of the Neural Radio dev repo. It **reuses** the existing
-engine (`speech.py` Kokoro TTS, `main.py` Stable Audio 3 music, `timeline.py`
-typed WebVTT timelines, `utils.py` loudness/mixing helpers) via pluggable
-backend adapters, and adds:
+engine (`main.py` Stable Audio 3, `speech.py` Kokoro TTS, `cross.py` crossfade,
+`video.py` video export, `timeline.py` timelines) rather than reimplementing it.
 
-| Feature | Where |
+| Capability | Where |
 |---|---|
-| 1. Scheduling + task management (submit / track / cancel) | `arq` queue + `Job`/`Schedule` models, `/jobs`, `/schedules` |
-| 2. Configure audio + TTS backends, orchestrate streams | `Backend`/`Program` models, backend registry, timeline mixer |
-| 3. Native radio streaming | Real-time playout → HTTP MP3 + HLS, optional **Icecast** publisher |
-| 4. History + pre-allocated buffer | `HistoryItem`/`PlayoutSegment`, buffer manager (15–20 min batches) |
+| Studio UI: generate tracks + assemble videos | `/api/studio/*`, Generate + Library pages |
+| Local music generation (Stable Audio 3, medium by default) | `generate_tracks` job → `main.py --prompts` |
+| Video export (crossfade + visualizer, −14 LUFS master) | `make_video` job → `video.py` |
+| Scheduling + jobs (submit / track / cancel) | `arq` queue, `/jobs`, `/schedules` |
+| Radio streaming (HTTP MP3 + HLS + Icecast) + pre-allocated buffer | real-time playout, `/streams/*` |
+| LLM agent control surface | `/api/agent/*`, `agent/` |
 
 ## Layout
 
@@ -61,9 +65,18 @@ cd ../ui && npm install && npm run dev                           # terminal C ->
 
 Tests: `uv run pytest` (from `api/`).
 
-Open http://localhost:5173, create a Program, create a Stream, press **Go Live**.
-The buffer manager generates 18-min batches ahead of playout; the player streams
-`/api/streams/{id}/live.mp3`.
+Open http://localhost:5173:
+
+1. **Generate** — paste a prompt list (JSON array of `{title, prompt, duration}`),
+   pick **Stable Audio 3** (local) or **Mock** (instant, for testing), click
+   **Generate tracks**. Stable Audio needs the parent repo env synced
+   (`uv sync` at the repo root; medium model downloads on first run).
+2. **Library** — tick tracks in order, choose a visualizer + crossfade, click
+   **Make video**. The rendered mp4 appears under **Videos** to play or download.
+
+The radio-automation and agent features (streams, programs, schedules, Icecast,
+`/api/agent/*`) remain available via the API even though the UI focuses on the
+Studio flow.
 
 ## Real backends (Kokoro / Stable Audio 3)
 

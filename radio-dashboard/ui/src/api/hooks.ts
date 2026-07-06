@@ -192,6 +192,33 @@ export function useDeleteHistory() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteHistory(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["history"] }),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["history"] }),
+        qc.invalidateQueries({ queryKey: ["tracks"] }),
+        qc.invalidateQueries({ queryKey: ["videos"] }),
+      ]),
+  });
+}
+
+// --- studio -----------------------------------------------------------------
+export function useTracks() {
+  return useQuery({ queryKey: ["tracks"], queryFn: api.tracks, refetchInterval: 4000 });
+}
+export function useVideos() {
+  return useQuery({ queryKey: ["videos"], queryFn: api.videos, refetchInterval: 4000 });
+}
+export function useGenerateTracks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: unknown) => api.generateTracks(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["jobs"] }),
+  });
+}
+export function useMakeVideo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: unknown) => api.makeVideo(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["jobs"] }),
   });
 }

@@ -12,7 +12,13 @@ from ..models import HistoryItem
 
 router = APIRouter(prefix="/history", tags=["history"])
 
-_MEDIA_TYPES = {".flac": "audio/flac", ".wav": "audio/wav", ".mp3": "audio/mpeg"}
+_MEDIA_TYPES = {
+    ".flac": "audio/flac",
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".mp4": "video/mp4",
+}
 
 
 @router.get("", response_model=list[HistoryItem])

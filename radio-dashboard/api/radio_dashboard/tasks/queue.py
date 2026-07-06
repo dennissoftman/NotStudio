@@ -16,6 +16,8 @@ from ..models import Job
 
 RENDER_BATCH_FUNCTION = "render_batch_job"
 RENDER_ANNOUNCEMENT_FUNCTION = "render_announcement_job"
+GENERATE_TRACKS_FUNCTION = "generate_tracks_job"
+MAKE_VIDEO_FUNCTION = "make_video_job"
 
 
 def redis_settings() -> RedisSettings:
@@ -78,6 +80,56 @@ async def submit_announcement(
     await session.refresh(job)
 
     await pool.enqueue_job(RENDER_ANNOUNCEMENT_FUNCTION, job.id, _job_id=job.id)
+    return job
+
+
+async def submit_generate_tracks(
+    pool: ArqRedis,
+    session: AsyncSession,
+    *,
+    prompts: list[dict],
+    provider: str | None = None,
+    model: str | None = None,
+) -> Job:
+    """Create + enqueue a track-generation job (Studio flow)."""
+    job = Job(
+        type="generate_tracks",
+        status="queued",
+        params={"prompts": prompts, "provider": provider, "model": model},
+        enqueued_at=utcnow(),
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    await pool.enqueue_job(GENERATE_TRACKS_FUNCTION, job.id, _job_id=job.id)
+    return job
+
+
+async def submit_make_video(
+    pool: ArqRedis,
+    session: AsyncSession,
+    *,
+    item_ids: list[str],
+    title: str | None = None,
+    visualizer: str = "cqt",
+    crossfade_seconds: float = 6.0,
+) -> Job:
+    """Create + enqueue a video-assembly job from selected tracks."""
+    job = Job(
+        type="make_video",
+        status="queued",
+        params={
+            "item_ids": item_ids,
+            "title": title,
+            "visualizer": visualizer,
+            "crossfade_seconds": crossfade_seconds,
+        },
+        enqueued_at=utcnow(),
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    await pool.enqueue_job(MAKE_VIDEO_FUNCTION, job.id, _job_id=job.id)
     return job
 
 

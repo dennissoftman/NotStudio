@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from pathlib import Path
 from typing import Any
 
 from ..audio import dsp
@@ -18,7 +19,7 @@ from ..backends.base import MusicBackend, SpeechBackend
 from ..backends.mock import MockMusicBackend, MockSpeechBackend
 from ..backends.registry import build_backend
 from ..config import get_settings
-from ..constants import utcnow
+from ..constants import new_id, utcnow
 from ..db import session_scope
 from ..models import Backend, HistoryItem, Job, PlayoutSegment, Program, Stream
 from .. import buffer as buffer_mod
@@ -310,3 +311,173 @@ async def render_announcement_job(ctx: dict[str, Any], job_id: str) -> dict[str,
         },
     )
     return {"history_item_id": item_id, "duration_seconds": duration}
+
+
+async def generate_tracks_job(ctx: dict[str, Any], job_id: str) -> dict[str, Any]:
+    """Generate standalone tracks from a prompt list into the library (Studio flow).
+
+    Stable Audio runs as a single batched ``main.py --prompts`` call (one model
+    load for all prompts); the mock provider renders in-process per prompt.
+    """
+    settings = get_settings()
+    await _update_job(job_id, status="in_progress", started_at=utcnow(), progress=0.1)
+
+    async with session_scope() as session:
+        job = await session.get(Job, job_id)
+        if job is None:
+            return {"error": "job row missing"}
+
+    params = job.params or {}
+    prompts = list(params.get("prompts") or [])
+    provider = params.get("provider") or settings.default_music_provider
+    model = params.get("model") or settings.default_music_model
+    sr, ch = settings.sample_rate, settings.channels
+    if not prompts:
+        await _update_job(job_id, status="failed", error="no prompts", finished_at=utcnow())
+        return {"error": "no prompts"}
+
+    stop = threading.Event()
+
+    def work() -> list[tuple[dict[str, Any], Any]]:
+        rendered: list[tuple[dict[str, Any], Any]] = []
+        if provider == "stable_audio":
+            from ..backends.stable_audio import generate_batch
+
+            produced = generate_batch(
+                prompts, sample_rate=sr, model=model, out_dir=settings.audio_dir / f"gen-{job_id}"
+            )
+            for spec, path in produced:
+                rendered.append((spec, dsp.load_audio_file(str(path), sr, ch)))
+        else:
+            backend = MockMusicBackend()
+            for spec in prompts:
+                if stop.is_set():
+                    raise JobCancelled()
+                buf = backend.generate_music(
+                    prompt=spec.get("prompt", ""),
+                    duration=float(spec.get("duration", 180)),
+                    sample_rate=sr,
+                    channels=ch,
+                )
+                rendered.append((spec, buf.data))
+        return rendered
+
+    try:
+        rendered = await _run_in_thread(stop, work)
+    except asyncio.CancelledError:
+        await _update_job(job_id, status="cancelled", finished_at=utcnow(), message="Cancelled")
+        raise
+    except JobCancelled:
+        await _update_job(job_id, status="cancelled", finished_at=utcnow(), message="Cancelled")
+        return {"status": "cancelled"}
+    except Exception as exc:  # noqa: BLE001
+        await _update_job(job_id, status="failed", error=str(exc), finished_at=utcnow())
+        raise
+
+    track_ids: list[str] = []
+    async with session_scope() as session:
+        for spec, data in rendered:
+            path = settings.audio_dir / f"track-{new_id()}.flac"
+            await asyncio.to_thread(dsp.write_audio_file, str(path), data, sr)
+            item = HistoryItem(
+                kind="track",
+                title=spec.get("title", "Track"),
+                path=str(path),
+                sample_rate=sr,
+                channels=ch,
+                duration_seconds=len(data) / sr,
+                size_bytes=path.stat().st_size if path.exists() else 0,
+                meta={"prompt": spec.get("prompt", ""), "provider": provider},
+            )
+            session.add(item)
+            await session.commit()
+            await session.refresh(item)
+            track_ids.append(item.id)
+
+    await _update_job(
+        job_id,
+        status="completed",
+        progress=1.0,
+        message=f"Generated {len(track_ids)} track(s)",
+        finished_at=utcnow(),
+        result={"track_ids": track_ids},
+    )
+    return {"track_ids": track_ids}
+
+
+async def make_video_job(ctx: dict[str, Any], job_id: str) -> dict[str, Any]:
+    """Crossfade selected library tracks and render a YouTube-ready video."""
+    settings = get_settings()
+    await _update_job(
+        job_id, status="in_progress", started_at=utcnow(), progress=0.15, message="Loading tracks"
+    )
+
+    async with session_scope() as session:
+        job = await session.get(Job, job_id)
+        if job is None:
+            return {"error": "job row missing"}
+
+    params = job.params or {}
+    item_ids = list(params.get("item_ids") or [])
+    crossfade = float(params.get("crossfade_seconds", 6.0))
+    visualizer = params.get("visualizer", "cqt")
+    title = params.get("title")
+    sr, ch = settings.sample_rate, settings.channels
+
+    async with session_scope() as session:
+        items = [it for it in [await session.get(HistoryItem, i) for i in item_ids] if it]
+    if not items:
+        await _update_job(job_id, status="failed", error="no tracks selected", finished_at=utcnow())
+        return {"error": "no tracks"}
+
+    paths = [it.path for it in items]
+    titles = [it.title for it in items]
+    stop = threading.Event()
+
+    def work() -> tuple[Path, float]:
+        from .. import video_export
+
+        mix, starts = video_export.crossfade_tracks(
+            paths, sample_rate=sr, channels=ch, crossfade_seconds=crossfade
+        )
+        mix_path = settings.audio_dir / f"mix-{job_id}.flac"
+        dsp.write_audio_file(str(mix_path), mix, sr)
+        video_export.write_cue(mix_path.with_suffix(".cue"), mix_path.name, titles, starts)
+        out_path = settings.videos_dir / f"video-{job_id}.mp4"
+        video_export.render_video(mix_path, out_path, visualizer=visualizer, title=title)
+        return out_path, len(mix) / sr
+
+    try:
+        out_path, duration = await _run_in_thread(stop, work)
+    except asyncio.CancelledError:
+        await _update_job(job_id, status="cancelled", finished_at=utcnow(), message="Cancelled")
+        raise
+    except Exception as exc:  # noqa: BLE001
+        await _update_job(job_id, status="failed", error=str(exc), finished_at=utcnow())
+        raise
+
+    async with session_scope() as session:
+        item = HistoryItem(
+            kind="video",
+            title=title or f"Mix of {len(items)} tracks",
+            path=str(out_path),
+            sample_rate=sr,
+            channels=ch,
+            duration_seconds=duration,
+            size_bytes=out_path.stat().st_size if out_path.exists() else 0,
+            meta={"source_item_ids": item_ids, "visualizer": visualizer},
+        )
+        session.add(item)
+        await session.commit()
+        await session.refresh(item)
+        video_id = item.id
+
+    await _update_job(
+        job_id,
+        status="completed",
+        progress=1.0,
+        message="Video ready",
+        finished_at=utcnow(),
+        result={"video_id": video_id, "path": str(out_path)},
+    )
+    return {"video_id": video_id}

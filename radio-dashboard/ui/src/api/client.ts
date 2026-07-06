@@ -252,4 +252,12 @@ export const api = {
   timelineUrl: (id: string) => `/api/history/${id}/timeline`,
   liveUrl: (id: string) => `/api/streams/${id}/live.mp3`,
   hlsUrl: (id: string) => `/api/streams/${id}/hls/playlist.m3u8`,
+
+  // studio (generate tracks -> assemble video)
+  generateTracks: (data: unknown) =>
+    req<Job>("/studio/generate", { method: "POST", body: body(data) }),
+  tracks: () => req<HistoryItem[]>("/studio/tracks"),
+  makeVideo: (data: unknown) =>
+    req<Job>("/studio/videos", { method: "POST", body: body(data) }),
+  videos: () => req<HistoryItem[]>("/studio/videos"),
 };

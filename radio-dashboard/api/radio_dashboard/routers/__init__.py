@@ -2,9 +2,10 @@
 
 from fastapi import APIRouter
 
-from . import agent, backends, history, jobs, programs, schedules, streams
+from . import agent, backends, history, jobs, programs, schedules, streams, studio
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(studio.router)
 api_router.include_router(backends.router)
 api_router.include_router(programs.router)
 api_router.include_router(streams.router)

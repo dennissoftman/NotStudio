@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     engine_root: Path = _REPO_ROOT
     uv_path: str = "uv"
 
+    # Track generation (local Stable Audio 3 via the parent main.py) --------
+    default_music_provider: str = "stable_audio"  # "stable_audio" | "mock"
+    default_music_model: str = "medium"  # Stable Audio 3 model (auto -> medium on MPS)
+
     def model_post_init(self, __context: object) -> None:
         self.data_dir = self.data_dir.expanduser().resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -71,6 +75,11 @@ class Settings(BaseSettings):
     def hls_dir(self) -> Path:
         """Where live HLS playlists/segments are written per stream."""
         return self._subdir("hls")
+
+    @property
+    def videos_dir(self) -> Path:
+        """Where assembled YouTube-style videos are written."""
+        return self._subdir("videos")
 
 
 @lru_cache

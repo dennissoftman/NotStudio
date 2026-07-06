@@ -169,3 +169,24 @@ class BufferStatus(BaseModel):
     segments_ready: int
     segments_total: int
     generating: bool
+
+
+# --- Studio: generate tracks + assemble a video -------------------------------
+class PromptSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    title: str
+    prompt: str
+    duration: float = 180.0
+
+
+class GenerateTracksRequest(BaseModel):
+    prompts: list[PromptSpec]
+    provider: Literal["stable_audio", "mock"] | None = None  # default from settings
+    model: str | None = None  # Stable Audio model; default from settings
+
+
+class MakeVideoRequest(BaseModel):
+    item_ids: list[str]  # track HistoryItem ids, in play order
+    title: str | None = None
+    visualizer: Literal["cqt", "spectrum", "waves", "none"] = "cqt"
+    crossfade_seconds: float = 6.0
