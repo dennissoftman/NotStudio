@@ -1,0 +1,31 @@
+# Local infra for the Radio Dashboard.
+#   docker compose up -d redis                 # required (arq queue)
+#   docker compose --profile icecast up -d     # optional Icecast server (feature #3)
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: radio-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Optional. Only started with:  docker compose --profile icecast up -d icecast
+  icecast:
+    image: moul/icecast
+    container_name: radio-icecast
+    profiles: ["icecast"]
+    environment:
+      ICECAST_SOURCE_PASSWORD: hackme
+      ICECAST_ADMIN_PASSWORD: hackme
+      ICECAST_RELAY_PASSWORD: hackme
+      ICECAST_ADMIN_USERNAME: admin
+      ICECAST_ADMIN_EMAIL: admin@localhost
+      ICECAST_LOCATION: Earth
+      ICECAST_HOSTNAME: localhost
+    ports:
+      - "8000:8000"

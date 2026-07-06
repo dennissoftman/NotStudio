@@ -24,6 +24,9 @@ dev = [
 
 [tool.uv.workspace]
 members = ["stable-audio-3"]
+# radio-dashboard is a standalone subproject with its own light-weight env; it
+# reuses this engine at runtime via the backend adapters, not as a shared venv.
+exclude = ["radio-dashboard"]
 
 [tool.uv.sources]
 stable-audio-3 = { workspace = true }
