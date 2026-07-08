@@ -1,15 +1,12 @@
 [project]
-name = "neuralradio"
+name = "not-studio-engine"
 version = "0.1.0"
-description = "Neural Radio is a project that uses AI to generate, manage and stream radio content."
-readme = "README.md"
+description = "Stable Audio generation and mix rendering engine for Not Studio."
+readme = "not-studio/README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "kokoro>=0.9.4",
-    "miniaudio>=1.71",
     "mutagen>=1.48.1",
     "pyloudnorm>=0.2.0",
-    "pysubs2>=1.8.1",
     "soundfile>=0.14.0",
     "stable-audio-3",
     "torch>=2.7.1",
@@ -24,9 +21,9 @@ dev = [
 
 [tool.uv.workspace]
 members = ["stable-audio-3"]
-# radio-dashboard is a standalone subproject with its own light-weight env; it
+# Not Studio is a standalone subproject with its own light-weight env; it
 # reuses this engine at runtime via the backend adapters, not as a shared venv.
-exclude = ["radio-dashboard"]
+exclude = ["not-studio"]
 
 [tool.uv.sources]
 stable-audio-3 = { workspace = true }

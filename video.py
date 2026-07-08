@@ -13,7 +13,7 @@ master audio -> render video (visualizer reads the master, no audio) -> mux.
 
 Examples:
     python video.py mix.flac                                  # cqt visualizer, 1080p
-    python video.py mix.flac --visualizer spectrum --title "Neural FM — Night Drive"
+    python video.py mix.flac --visualizer spectrum --title "Night Drive"
     python video.py mix.flac --background cover.png --zoom     # art + slow zoom + bottom bars
     python video.py mix.flac --audio-only -o mix.m4a           # just the mastered audio
 
@@ -405,7 +405,7 @@ def main() -> None:
         font=font,
     )
 
-    workdir = Path(tempfile.mkdtemp(prefix="neuralradio-video-"))
+    workdir = Path(tempfile.mkdtemp(prefix="not-studio-video-"))
     master = workdir / "master.flac"
     silent_video = workdir / "video.mp4"
     try:

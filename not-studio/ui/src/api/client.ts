@@ -1,0 +1,119 @@
+// Typed client for the Not Studio API.
+
+export type MusicProvider = "stable_audio_local" | "stable_audio_runpod";
+export type PromptProvider = "lm_studio" | "gemini" | "openai" | "anthropic";
+export type TrackVerdict = "liked" | "disliked" | "unreviewed";
+export type JobStatus = "queued" | "in_progress" | "completed" | "failed" | "cancelled";
+
+export interface MusicProviderInfo {
+  provider: MusicProvider;
+  kinds: string[];
+  available: boolean;
+  detail: string;
+  default_config: Record<string, unknown>;
+}
+
+export interface PromptProviderInfo {
+  provider: PromptProvider;
+  available: boolean;
+  detail: string;
+  default_model: string;
+}
+
+export interface PromptSpec {
+  title: string;
+  prompt: string;
+  duration: number;
+}
+
+export interface Job {
+  id: string;
+  type: string;
+  status: JobStatus;
+  params: Record<string, unknown>;
+  progress: number;
+  message: string;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+  enqueued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface HistoryItem {
+  id: string;
+  kind: string;
+  title: string;
+  job_id: string | null;
+  path: string;
+  sample_rate: number;
+  channels: number;
+  duration_seconds: number;
+  size_bytes: number;
+  lufs: number | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface Health {
+  status: string;
+  jobs: string;
+  providers: MusicProviderInfo[];
+  prompt_providers: PromptProviderInfo[];
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+const body = (data: unknown) => JSON.stringify(data);
+
+export const api = {
+  health: () => req<Health>("/health"),
+
+  jobs: (params?: { status?: string }) => {
+    const q = new URLSearchParams(params as Record<string, string>).toString();
+    return req<Job[]>(`/jobs${q ? `?${q}` : ""}`);
+  },
+  cancelJob: (id: string) => req<Job>(`/jobs/${id}/cancel`, { method: "POST" }),
+
+  history: () => req<HistoryItem[]>("/history"),
+  deleteHistory: (id: string) => req<void>(`/history/${id}`, { method: "DELETE" }),
+  audioUrl: (id: string) => `/api/history/${id}/audio`,
+
+  generateAlbum: (data: unknown) =>
+    req<Job>("/studio/albums/generate", { method: "POST", body: body(data) }),
+  generateTracks: (data: unknown) =>
+    req<Job>("/studio/generate", { method: "POST", body: body(data) }),
+  tracks: (params?: { verdict?: TrackVerdict }) => {
+    const q = new URLSearchParams(params as Record<string, string>).toString();
+    return req<HistoryItem[]>(`/studio/tracks${q ? `?${q}` : ""}`);
+  },
+  reviewTrack: (id: string, data: { verdict: TrackVerdict; note?: string | null }) =>
+    req<HistoryItem>(`/studio/tracks/${id}/review`, { method: "PATCH", body: body(data) }),
+  makeVideo: (data: unknown) =>
+    req<Job>("/studio/videos", { method: "POST", body: body(data) }),
+  videos: () => req<HistoryItem[]>("/studio/videos"),
+  promptProviders: () => req<PromptProviderInfo[]>("/studio/prompt-providers"),
+  generatePromptIdeas: (data: unknown) =>
+    req<{ prompts: PromptSpec[]; provider: PromptProvider; model: string }>("/studio/prompts/generate", {
+      method: "POST",
+      body: body(data),
+    }),
+};

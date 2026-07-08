@@ -1,13 +1,10 @@
-import re
 import warnings
 from pathlib import Path
 
 import numpy as np
 import pyloudnorm as pyln
 import soundfile as sf
-import torch
 from mutagen.flac import FLAC
-from torchaudio.functional import resample
 
 
 DEFAULT_AUDIO_PEAK = 0.999
@@ -56,48 +53,6 @@ def peak_limit(data, peak=DEFAULT_AUDIO_PEAK):
     if max_peak > peak:
         return data / max_peak * peak
     return data
-
-
-def clean_spoken_text(text):
-    """Make news/content copy less brittle for text-to-speech."""
-    text = text.replace("\u2014", ", ")
-    text = text.replace("\u2013", ", ")
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-
-def count_spoken_words(text):
-    """Estimate spoken words in cleaned narration text."""
-    return len(
-        re.findall(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?", clean_spoken_text(text))
-    )
-
-
-def resample_mono_audio(audio, source_rate, target_rate):
-    """Resample one-dimensional audio, returning a NumPy array."""
-    if target_rate == source_rate:
-        return audio
-
-    tensor = torch.from_numpy(np.asarray(audio, dtype=np.float32)).unsqueeze(0)
-    return resample(tensor, source_rate, target_rate).squeeze(0).numpy()
-
-
-def prepare_mono_audio_output(
-    audio,
-    source_rate,
-    output_rate,
-    target_lufs: float | None = -16.0,
-):
-    """Prepare mono float audio for writing: normalize, peak-limit, and resample."""
-    audio = np.asarray(audio, dtype=np.float32).reshape(-1)
-
-    if target_lufs is not None:
-        audio = normalize_loudness_safely(audio[:, None], source_rate, target_lufs)[
-            :, 0
-        ]
-
-    audio = resample_mono_audio(audio, source_rate, output_rate)
-    return np.clip(peak_limit(audio), -1.0, 1.0)
 
 
 def write_audio_file(
