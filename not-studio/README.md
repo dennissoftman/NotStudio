@@ -49,7 +49,7 @@ cd ../api && uv sync
 uv run dev
 ```
 
-`uv run dev` starts the API on `http://localhost:8000` and the UI on
+`uv run dev` starts the API on `http://localhost:8001` and the UI on
 `http://localhost:5173`. Jobs run as FastAPI background tasks inside the API.
 
 Run tests from `api/`:

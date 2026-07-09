@@ -9,7 +9,6 @@ import torchaudio
 from stable_audio_3 import StableAudioModel
 from stable_audio_3.model_configs import models
 from torchaudio.functional import resample
-
 from utils import normalize_loudness, tag_flac
 
 

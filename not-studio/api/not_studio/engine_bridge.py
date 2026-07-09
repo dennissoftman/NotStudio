@@ -19,7 +19,7 @@ def engine_root() -> Path:
 
 
 def engine_has(script: str) -> bool:
-    return (engine_root() / script).is_file()
+    return (engine_root() / "scripts" / script).is_file()
 
 
 def engine_venv_ready() -> bool:
@@ -52,7 +52,7 @@ def run_engine_cli_streaming(
         str(settings.engine_root),
         "python",
         "-u",
-        script,
+        Path("scripts") / script,
         *args,
     ]
     proc = subprocess.Popen(

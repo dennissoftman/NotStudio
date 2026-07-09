@@ -75,19 +75,28 @@ def main() -> None:
         print(__doc__)
         return
 
-    api_port = "8000"
+    api_port = "8001"
     argv = sys.argv[1:]
     if "--api-port" in argv:
         api_port = argv[argv.index("--api-port") + 1]
     if _port_in_use(int(api_port)):
-        _log("dev", f"port {api_port} is already in use; pass --api-port or stop the old API.")
+        _log(
+            "dev",
+            f"port {api_port} is already in use; pass --api-port or stop the old API.",
+        )
         return
 
     bindir = Path(sys.executable).parent
     procs: list[_Proc] = [
         _Proc(
             "api",
-            [str(bindir / "uvicorn"), "not_studio.main:app", "--reload", "--port", api_port],
+            [
+                str(bindir / "uvicorn"),
+                "not_studio.main:app",
+                "--reload",
+                "--port",
+                api_port,
+            ],
             _API_DIR,
         )
     ]

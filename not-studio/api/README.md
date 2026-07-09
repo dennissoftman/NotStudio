@@ -7,7 +7,7 @@ Run:
 
 ```bash
 uv sync
-uv run uvicorn not_studio.main:app --reload --port 8000
+uv run uvicorn not_studio.main:app --reload --port 8001
 ```
 
 Or use the combined API + UI launcher:
