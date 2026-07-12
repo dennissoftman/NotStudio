@@ -92,6 +92,7 @@ export const api = {
     return req<Job[]>(`/jobs${q ? `?${q}` : ""}`);
   },
   cancelJob: (id: string) => req<Job>(`/jobs/${id}/cancel`, { method: "POST" }),
+  retryJob: (id: string) => req<Job>(`/jobs/${id}/retry`, { method: "POST" }),
   deleteJob: (id: string) => req<void>(`/jobs/${id}`, { method: "DELETE" }),
 
   history: () => req<HistoryItem[]>("/history"),

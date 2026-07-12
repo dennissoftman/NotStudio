@@ -6,6 +6,7 @@ import {
   useDeleteJob,
   useJobs,
   useMakeVideo,
+  useRetryJob,
   useReviewTrack,
   useTracks,
   useVideos,
@@ -61,6 +62,7 @@ export default function Library() {
   const makeVideo = useMakeVideo();
   const cancelJob = useCancelJob();
   const deleteJob = useDeleteJob();
+  const retryJob = useRetryJob();
   const review = useReviewTrack();
   const del = useDeleteHistory();
 
@@ -141,27 +143,7 @@ export default function Library() {
   return (
     <div className="space-y-10">
       <div>
-        <SectionTitle
-          title="Review tracks"
-          subtitle="Listen to each candidate, keep the strong ones, then make a mix."
-          actions={
-            <label className="flex items-center gap-2 text-xs text-slate-400">
-              Sort
-              <select
-                className="input w-auto"
-                value={sort}
-                onChange={(event) => setSort(event.target.value as TrackSort)}
-              >
-                <option value="date-desc">Generation date · newest</option>
-                <option value="date-asc">Generation date · oldest</option>
-                <option value="name-asc">Name · A–Z</option>
-                <option value="name-desc">Name · Z–A</option>
-                <option value="duration-asc">Duration · shortest</option>
-                <option value="duration-desc">Duration · longest</option>
-              </select>
-            </label>
-          }
-        />
+        <SectionTitle title="Review tracks" subtitle="Listen to each candidate, keep the strong ones, then make a mix." />
 
         <div className="mb-3 grid gap-2 sm:grid-cols-3">
           <Card className="!py-3">
@@ -179,6 +161,14 @@ export default function Library() {
         </div>
 
         {tracks?.length === 0 && <Empty>No tracks yet. Generate an album batch first.</Empty>}
+        {(tracks?.length ?? 0) > 0 && <div className="mb-2 flex items-center gap-1 rounded-lg border border-ink-700 bg-ink-900/80 p-1.5 text-xs text-slate-500">
+          <span className="px-2 uppercase tracking-wide">Sort list</span>
+          {([['date', 'Generated'], ['name', 'Name'], ['duration', 'Duration']] as const).map(([key, label]) => {
+            const active = sort.startsWith(key);
+            const direction = active && sort.endsWith('asc') ? 'asc' : 'desc';
+            return <button key={key} className={cx("rounded-md px-2.5 py-1.5 transition-colors hover:bg-ink-700 hover:text-slate-200", active && "bg-ink-700 text-slate-100")} onClick={() => setSort(`${key}-${active && direction === 'desc' ? 'asc' : 'desc'}` as TrackSort)}>{label} {active ? (direction === 'asc' ? '↑' : '↓') : ''}</button>;
+          })}
+        </div>}
         <div className="grid gap-2">
           {sortedTracks.map((track) => {
             const idx = selected.indexOf(track.id);
@@ -280,6 +270,15 @@ export default function Library() {
                   <span className="min-w-0 text-sm text-slate-300">{j.message || "rendering"}</span>
                   <div className="flex shrink-0 items-center gap-2">
                     <StatusBadge status={j.status} />
+                    {j.status === "failed" && (
+                      <button
+                        className="btn-primary !text-xs"
+                        disabled={retryJob.isPending}
+                        onClick={() => retryJob.mutate(j.id)}
+                      >
+                        Retry
+                      </button>
+                    )}
                     {(j.status === "queued" || j.status === "in_progress") && (
                       <button
                         className="btn-danger !text-xs"

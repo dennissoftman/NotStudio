@@ -102,3 +102,34 @@ def test_removing_completed_job_keeps_saved_outputs():
 
     assert deleted.status_code == 204
     assert asyncio.run(output_job_id(item_id)) is None
+
+
+def test_failed_job_can_be_retried_with_the_same_params(monkeypatch):
+    started: list[str] = []
+
+    async def create_failed_job() -> str:
+        async with session_scope() as session:
+            job = Job(
+                type="generate_tracks",
+                status="failed",
+                params={"prompts": [{"title": "Again", "prompt": "warm", "duration": 180}]},
+                error="worker crashed",
+            )
+            session.add(job)
+            await session.commit()
+            await session.refresh(job)
+            return job.id
+
+    monkeypatch.setattr(
+        "not_studio.routers.jobs.start_job_task", lambda job_id, runner: started.append(job_id)
+    )
+    with TestClient(app) as client:
+        original_id = asyncio.run(create_failed_job())
+        response = client.post(f"/api/jobs/{original_id}/retry")
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] != original_id
+    assert body["status"] == "queued"
+    assert body["params"]["prompts"][0]["duration"] == 180
+    assert started == [body["id"]]

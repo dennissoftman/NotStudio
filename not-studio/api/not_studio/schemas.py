@@ -33,13 +33,13 @@ class GenerateAlbumRequest(BaseModel):
     duration_variation_percent: float = Field(default=0.0, ge=0.0, le=50.0)
     album_title: str | None = Field(default=None, max_length=120)
     provider: MusicProvider | None = None
-    model: str | None = None
+    model: Literal["medium"] | None = None
 
 
 class GenerateTracksRequest(BaseModel):
     prompts: list[PromptSpec]
     provider: MusicProvider | None = None
-    model: str | None = None
+    model: Literal["medium"] | None = None
 
 
 class TrackReviewRequest(BaseModel):
@@ -66,6 +66,8 @@ class GeneratePromptIdeasRequest(BaseModel):
     mood: str = Field(min_length=1, max_length=80)
     styles: list[str] = Field(default_factory=list, max_length=8)
     track_count: int = Field(default=4, ge=1, le=20)
+    duration: float = Field(default=180.0, ge=15.0, le=900.0)
+    duration_variation_percent: float = Field(default=0.0, ge=0.0, le=50.0)
     album_title: str | None = Field(default=None, max_length=120)
     taste_notes: str = Field(default="", max_length=1000)
     model: str | None = None

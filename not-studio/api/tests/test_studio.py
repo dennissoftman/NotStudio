@@ -57,6 +57,11 @@ def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
     assert fractions[-1] >= 0.9
 
 
+def test_local_stable_audio_always_resolves_to_medium():
+    assert stable_audio._resolve_model_name("auto") == "medium"
+    assert stable_audio._resolve_model_name("anything-else") == "medium"
+
+
 def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
     monkeypatch.setattr(stable_audio, "_resolve_model_name", lambda requested: requested)
     monkeypatch.setattr(stable_audio, "_load_model", lambda model_name: object())
@@ -73,6 +78,31 @@ def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
         assert "cancelled" in str(exc)
     else:
         raise AssertionError("expected RuntimeError on cancellation")
+
+
+def test_generate_audio_grows_model_buffer_past_120_seconds(monkeypatch):
+    import torch
+
+    calls = {}
+
+    class Inner:
+        sample_rate = 100
+
+    class Model:
+        model = Inner()
+
+        def generate(self, **kwargs):
+            calls.update(kwargs)
+            return torch.zeros((1, 2, int(kwargs["duration"] * 100)))
+
+    monkeypatch.setattr("torchaudio.functional.resample", lambda audio, source, target: audio)
+    monkeypatch.setattr(
+        stable_audio.dsp, "normalize_loudness_safely", lambda data, *args, **kwargs: data
+    )
+    audio = stable_audio._generate_audio_array(Model(), "long track", 180, 100)
+
+    assert calls["sample_size"] > 180 * 100
+    assert audio.shape == (180 * 100, 2)
 
 
 def test_runpod_generate_batch_sends_one_request_and_writes_tracks(tmp_path, monkeypatch):
