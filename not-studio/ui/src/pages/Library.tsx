@@ -12,6 +12,7 @@ import {
 } from "../api/hooks";
 import {
   Badge,
+  AudioPlayer,
   Card,
   Empty,
   Progress,
@@ -20,6 +21,8 @@ import {
   cx,
   fmtDuration,
 } from "../components/ui";
+
+type TrackSort = "date-desc" | "date-asc" | "name-asc" | "name-desc" | "duration-asc" | "duration-desc";
 
 function verdictOf(track: HistoryItem): TrackVerdict {
   const review = (track.meta as Record<string, unknown>)?.review as Record<string, unknown> | undefined;
@@ -70,6 +73,23 @@ export default function Library() {
   const [visualizer, setVisualizer] = useState("cqt");
   const [crossfade, setCrossfade] = useState(6);
   const [error, setError] = useState("");
+  const [sort, setSort] = useState<TrackSort>("date-desc");
+
+  const sortedTracks = useMemo(() => {
+    const items = [...(tracks ?? [])];
+    return items.sort((a, b) => {
+      if (sort === "name-asc" || sort === "name-desc") {
+        const order = a.title.localeCompare(b.title, undefined, { numeric: true });
+        return sort === "name-asc" ? order : -order;
+      }
+      if (sort === "duration-asc" || sort === "duration-desc") {
+        const order = a.duration_seconds - b.duration_seconds;
+        return sort === "duration-asc" ? order : -order;
+      }
+      const order = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      return sort === "date-asc" ? order : -order;
+    });
+  }, [sort, tracks]);
 
   useEffect(() => {
     setSelected((current) => {
@@ -124,6 +144,23 @@ export default function Library() {
         <SectionTitle
           title="Review tracks"
           subtitle="Listen to each candidate, keep the strong ones, then make a mix."
+          actions={
+            <label className="flex items-center gap-2 text-xs text-slate-400">
+              Sort
+              <select
+                className="input w-auto"
+                value={sort}
+                onChange={(event) => setSort(event.target.value as TrackSort)}
+              >
+                <option value="date-desc">Generation date · newest</option>
+                <option value="date-asc">Generation date · oldest</option>
+                <option value="name-asc">Name · A–Z</option>
+                <option value="name-desc">Name · Z–A</option>
+                <option value="duration-asc">Duration · shortest</option>
+                <option value="duration-desc">Duration · longest</option>
+              </select>
+            </label>
+          }
         />
 
         <div className="mb-3 grid gap-2 sm:grid-cols-3">
@@ -143,7 +180,7 @@ export default function Library() {
 
         {tracks?.length === 0 && <Empty>No tracks yet. Generate an album batch first.</Empty>}
         <div className="grid gap-2">
-          {tracks?.map((track) => {
+          {sortedTracks.map((track) => {
             const idx = selected.indexOf(track.id);
             const verdict = verdictOf(track);
             return (
@@ -152,7 +189,7 @@ export default function Library() {
                   <TrackMeta track={track} />
                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                     <span className="text-xs text-slate-500">{fmtDuration(track.duration_seconds)}</span>
-                    <audio className="h-8 w-64 max-w-full" controls preload="none" src={api.audioUrl(track.id)} />
+                    <AudioPlayer src={api.audioUrl(track.id)} label={track.title} />
                     <button
                       className={cx("btn-ghost !text-xs", verdict === "liked" && "!border-emerald-500 !text-emerald-300")}
                       onClick={() => setVerdict(track, "liked")}

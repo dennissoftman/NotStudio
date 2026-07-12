@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -8,8 +8,33 @@ from ..constants import utcnow
 from ..deps import get_or_404, get_session
 from ..models import HistoryItem, Job
 from ..tasks.registry import cancel_job_task
+from ..tasks.events import jobs_version, notify_jobs_changed, wait_for_jobs_changed
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+async def _jobs_snapshot() -> list[dict]:
+    from ..db import session_scope
+
+    async with session_scope() as session:
+        res = await session.execute(select(Job).order_by(Job.created_at.desc()).limit(100))
+        return [job.model_dump(mode="json") for job in res.scalars().all()]
+
+
+@router.websocket("/ws")
+async def jobs_websocket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    version = jobs_version()
+    previous: list[dict] | None = None
+    try:
+        while True:
+            snapshot = await _jobs_snapshot()
+            if snapshot != previous:
+                await websocket.send_json({"type": "jobs", "jobs": snapshot})
+                previous = snapshot
+            version = await wait_for_jobs_changed(version)
+    except WebSocketDisconnect:
+        return
 
 
 @router.get("", response_model=list[Job])
@@ -42,6 +67,7 @@ async def cancel(job_id: str, session: AsyncSession = Depends(get_session)) -> J
     await session.commit()
     await session.refresh(job)
     cancel_job_task(job_id)
+    await notify_jobs_changed()
     return job
 
 
@@ -60,4 +86,5 @@ async def delete_job(job_id: str, session: AsyncSession = Depends(get_session)) 
         session.add(item)
     await session.delete(job)
     await session.commit()
+    await notify_jobs_changed()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

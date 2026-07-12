@@ -1,5 +1,6 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type TrackVerdict } from "./client";
+import { api, jobsWebSocketUrl, type Job, type TrackVerdict } from "./client";
 
 const keys = {
   health: ["health"],
@@ -19,7 +20,51 @@ export function usePromptProviders() {
 }
 
 export function useJobs() {
-  return useQuery({ queryKey: keys.jobs, queryFn: () => api.jobs(), refetchInterval: 1500 });
+  const qc = useQueryClient();
+  const query = useQuery({ queryKey: keys.jobs, queryFn: () => api.jobs(), staleTime: Infinity });
+
+  useEffect(() => {
+    let socket: WebSocket | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+
+    const connect = () => {
+      socket = new WebSocket(jobsWebSocketUrl());
+      socket.onmessage = (event) => {
+        const message = JSON.parse(event.data) as { type: string; jobs: Job[] };
+        if (message.type !== "jobs") return;
+        const previous = qc.getQueryData<Job[]>(keys.jobs) ?? [];
+        qc.setQueryData(keys.jobs, message.jobs);
+        const completedIds = new Set(
+          message.jobs.filter((job) => job.status === "completed").map((job) => job.id),
+        );
+        if (
+          message.jobs.some(
+            (job) =>
+              completedIds.has(job.id) &&
+              previous.find((old) => old.id === job.id)?.status !== "completed",
+          )
+        ) {
+          void Promise.all([
+            qc.invalidateQueries({ queryKey: keys.history }),
+            qc.invalidateQueries({ queryKey: keys.tracks }),
+            qc.invalidateQueries({ queryKey: keys.videos }),
+          ]);
+        }
+      };
+      socket.onclose = () => {
+        if (!stopped) retry = setTimeout(connect, 1500);
+      };
+    };
+    connect();
+    return () => {
+      stopped = true;
+      if (retry) clearTimeout(retry);
+      socket?.close();
+    };
+  }, [qc]);
+
+  return query;
 }
 
 export function useCancelJob() {
@@ -39,7 +84,7 @@ export function useDeleteJob() {
 }
 
 export function useHistory() {
-  return useQuery({ queryKey: keys.history, queryFn: api.history, refetchInterval: 5000 });
+  return useQuery({ queryKey: keys.history, queryFn: api.history });
 }
 
 export function useDeleteHistory() {
@@ -56,11 +101,11 @@ export function useDeleteHistory() {
 }
 
 export function useTracks() {
-  return useQuery({ queryKey: keys.tracks, queryFn: () => api.tracks(), refetchInterval: 4000 });
+  return useQuery({ queryKey: keys.tracks, queryFn: () => api.tracks() });
 }
 
 export function useVideos() {
-  return useQuery({ queryKey: keys.videos, queryFn: api.videos, refetchInterval: 4000 });
+  return useQuery({ queryKey: keys.videos, queryFn: api.videos });
 }
 
 export function useGenerateTracks() {

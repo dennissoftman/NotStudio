@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..constants import utcnow
 from ..models import Job
 from .jobs import generate_tracks_job, make_video_job
+from .events import notify_jobs_changed
 from .registry import start_job_task
 
 
@@ -59,5 +60,6 @@ async def _submit(
     session.add(job)
     await session.commit()
     await session.refresh(job)
+    await notify_jobs_changed()
     start_job_task(job.id, runner)
     return job
