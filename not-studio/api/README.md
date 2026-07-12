@@ -17,6 +17,10 @@ uv run dev
 ```
 
 Jobs run as API background tasks and are visible through `/api/jobs`.
+The live job snapshot stream is available at `/api/jobs/ws`.
+
+From this directory, `uv run dev --production` starts the API on `0.0.0.0:8081` and the built UI
+on `0.0.0.0:8080`.
 
 Configuration is documented in `../README.md` and `.env.example`. RunPod audio
 is transferred from an attached network volume through its S3-compatible API;

@@ -12,6 +12,7 @@ from ..constants import utcnow
 from ..db import session_scope
 from ..models import HistoryItem, Job
 from .processes import reusable_process_busy, run_in_process, run_in_reusable_process
+from .events import notify_jobs_changed
 
 RUNNING_STATUSES = ("queued", "in_progress")
 
@@ -30,6 +31,7 @@ async def update_job(job_id: str, **fields: Any) -> None:
             setattr(job, key, value)
         session.add(job)
         await session.commit()
+    await notify_jobs_changed()
 
 
 async def fail_interrupted_jobs() -> int:

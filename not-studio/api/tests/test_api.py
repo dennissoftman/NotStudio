@@ -21,6 +21,15 @@ def test_health_reports_music_and_prompt_providers():
         assert "openai" in prompt_providers
 
 
+def test_jobs_websocket_sends_initial_snapshot():
+    with TestClient(app) as client:
+        with client.websocket_connect("/api/jobs/ws") as websocket:
+            message = websocket.receive_json()
+
+    assert message["type"] == "jobs"
+    assert isinstance(message["jobs"], list)
+
+
 def test_jobs_can_be_cancelled_and_removed():
     async def create_job() -> str:
         async with session_scope() as session:

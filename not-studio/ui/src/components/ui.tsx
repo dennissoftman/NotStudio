@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
@@ -88,6 +88,79 @@ export function Empty({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-xl border border-dashed border-ink-700 p-8 text-center text-sm text-slate-500">
       {children}
+    </div>
+  );
+}
+
+const AUDIO_PLAY_EVENT = "not-studio:audio-play";
+
+export function AudioPlayer({ src, label }: { src: string; label: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const idRef = useRef(Math.random().toString(36).slice(2));
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  useEffect(() => {
+    const pauseOther = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== idRef.current) audioRef.current?.pause();
+    };
+    window.addEventListener(AUDIO_PLAY_EVENT, pauseOther);
+    return () => window.removeEventListener(AUDIO_PLAY_EVENT, pauseOther);
+  }, []);
+
+  async function toggle() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      window.dispatchEvent(new CustomEvent(AUDIO_PLAY_EVENT, { detail: idRef.current }));
+      await audio.play();
+    } else {
+      audio.pause();
+    }
+  }
+
+  const max = duration || 0;
+  return (
+    <div className="flex min-w-64 max-w-full items-center gap-2 rounded-full border border-ink-600 bg-ink-950 px-2 py-1">
+      <audio
+        ref={audioRef}
+        preload="metadata"
+        src={src}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+      />
+      <button
+        type="button"
+        aria-label={`${playing ? "Pause" : "Play"} ${label}`}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs text-white hover:bg-accent-soft"
+        onClick={toggle}
+      >
+        {playing ? "Ⅱ" : "▶"}
+      </button>
+      <span className="w-9 shrink-0 text-right text-[11px] tabular-nums text-slate-400">
+        {fmtDuration(currentTime)}
+      </span>
+      <input
+        aria-label={`Seek ${label}`}
+        className="audio-range min-w-20 flex-1"
+        type="range"
+        min={0}
+        max={max}
+        step={0.1}
+        value={Math.min(currentTime, max)}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          if (audioRef.current) audioRef.current.currentTime = next;
+          setCurrentTime(next);
+        }}
+      />
+      <span className="w-9 shrink-0 text-[11px] tabular-nums text-slate-500">
+        {fmtDuration(duration)}
+      </span>
     </div>
   );
 }

@@ -75,7 +75,8 @@ def main() -> None:
         print(__doc__)
         return
 
-    api_port = "8001"
+    production = "--production" in args
+    api_port = "8081" if production else "8001"
     argv = sys.argv[1:]
     if "--api-port" in argv:
         api_port = argv[argv.index("--api-port") + 1]
@@ -87,23 +88,27 @@ def main() -> None:
         return
 
     bindir = Path(sys.executable).parent
+    api_command = [
+        str(bindir / "uvicorn"),
+        "not_studio.main:app",
+        "--host",
+        "0.0.0.0" if production else "127.0.0.1",
+        "--port",
+        api_port,
+    ]
+    if not production:
+        api_command.append("--reload")
     procs: list[_Proc] = [
         _Proc(
             "api",
-            [
-                str(bindir / "uvicorn"),
-                "not_studio.main:app",
-                "--reload",
-                "--port",
-                api_port,
-            ],
+            api_command,
             _API_DIR,
         )
     ]
     if "--no-ui" not in args:
         npm = shutil.which("npm")
         if npm and (_UI_DIR / "node_modules").is_dir():
-            procs.append(_Proc("ui", [npm, "run", "dev"], _UI_DIR))
+            procs.append(_Proc("ui", [npm, "run", "production" if production else "dev"], _UI_DIR))
         elif npm:
             _log("ui", "skipped: run `npm install` in ui/ first.")
         else:
@@ -112,8 +117,9 @@ def main() -> None:
     _log("dev", f"launching: {', '.join(p.name for p in procs)}")
     for proc in procs:
         proc.start()
-    _log("dev", f"API -> http://localhost:{api_port}  (docs at /docs)")
-    _log("dev", "UI  -> http://localhost:5173")
+    display_host = "0.0.0.0" if production else "localhost"
+    _log("dev", f"API -> http://{display_host}:{api_port}  (docs at /docs)")
+    _log("dev", f"UI  -> http://{display_host}:{8080 if production else 5173}")
 
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
