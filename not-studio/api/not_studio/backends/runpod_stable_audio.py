@@ -20,6 +20,7 @@ def generate_batch(
     model: str,
     out_dir: Path,
     on_progress: Callable[[float, str], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
     client: httpx.Client | None = None,
     storage_client: Any | None = None,
 ) -> list[tuple[dict[str, Any], Path]]:
@@ -54,10 +55,14 @@ def generate_batch(
     }
     if on_progress:
         on_progress(0.1, f"Submitted {len(prompts)} tracks to RunPod")
+    if should_cancel and should_cancel():
+        raise RuntimeError("RunPod Stable Audio batch cancelled")
 
     owns_client = client is None
     http = client or httpx.Client(timeout=settings.runpod_timeout_seconds)
     try:
+        if on_progress:
+            on_progress(0.12, f"Waiting for RunPod to render {len(prompts)} track(s)")
         response = http.post(
             url,
             headers={"Authorization": f"Bearer {settings.runpod_api_key}"},
@@ -74,6 +79,8 @@ def generate_batch(
     if body.get("status") != "COMPLETED":
         detail = body.get("error") or body.get("status") or "unknown response"
         raise RuntimeError(f"RunPod Stable Audio batch did not complete: {detail}")
+    if should_cancel and should_cancel():
+        raise RuntimeError("RunPod Stable Audio batch cancelled")
 
     output = body.get("output")
     tracks = output.get("tracks") if isinstance(output, dict) else output
@@ -94,12 +101,18 @@ def generate_batch(
     )
     produced: list[tuple[dict[str, Any], Path]] = []
     for index, (spec, track) in enumerate(zip(prompts, tracks, strict=True), start=1):
+        if should_cancel and should_cancel():
+            raise RuntimeError("RunPod Stable Audio batch cancelled")
         if not isinstance(track, dict):
             raise RuntimeError(f"RunPod Stable Audio track {index} is not an object.")
         storage_key = track.get("storage_key")
         if not isinstance(storage_key, str) or not storage_key:
             raise RuntimeError(f"RunPod Stable Audio track {index} has no storage key.")
         path = out_dir / f"{_slugify(spec['title'])}.flac"
+        if on_progress:
+            on_progress(
+                0.1 + 0.85 * (index - 1) / len(prompts), f"Downloading {index}/{len(prompts)}"
+            )
         try:
             with path.open("wb") as output_file:
                 s3.download_fileobj(settings.runpod_volume_id, storage_key, output_file)

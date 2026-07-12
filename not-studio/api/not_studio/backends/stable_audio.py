@@ -1,18 +1,55 @@
 from __future__ import annotations
 
-import json
 import re
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..engine_bridge import run_engine_cli_streaming
+import numpy as np
+
+from ..audio import dsp
+
+_MODELS: dict[str, Any] = {}
 
 
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "track"
+
+
+def _resolve_model_name(requested_model: str) -> str:
+    if requested_model != "auto":
+        return requested_model
+    import torch
+
+    has_accelerator = torch.cuda.is_available() or torch.backends.mps.is_available()
+    return "medium" if has_accelerator else "small-music"
+
+
+def _load_model(model_name: str) -> Any:
+    model = _MODELS.get(model_name)
+    if model is None:
+        from stable_audio_3 import StableAudioModel
+
+        model = StableAudioModel.from_pretrained(model_name)
+        _MODELS[model_name] = model
+    return model
+
+
+def _generate_audio_array(model: Any, prompt: str, duration: float, output_rate: int) -> np.ndarray:
+    import torch
+    from torchaudio.functional import resample
+
+    audio = model.generate(prompt=prompt, duration=duration)[0].cpu()
+    model_sample_rate = int(model.model.sample_rate)
+    if output_rate != model_sample_rate:
+        audio = resample(audio, model_sample_rate, output_rate)
+
+    # Stable Audio returns tensors as (channels, samples); the API DSP layer uses
+    # soundfile's shape convention: (samples, channels).
+    data = audio.transpose(0, 1).numpy()
+    data = dsp.normalize_loudness_safely(data, output_rate, target_lufs=-16.0)
+    return torch.from_numpy(data.T.copy()).clamp(-1, 1).numpy().T
 
 
 def generate_batch(
@@ -22,59 +59,49 @@ def generate_batch(
     model: str,
     out_dir: Path,
     on_progress: Callable[[float, str], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> list[tuple[dict[str, Any], Path]]:
-    """Generate many tracks in ONE ``main.py --prompts`` call (single model load).
-
-    ``prompts`` items need ``title`` + ``prompt`` (optional ``duration``). Streams
-    main.py's output so ``on_progress(frac, message)`` fires on model load and after
-    each track. Returns ``(spec, flac_path)`` for each track produced (main.py names
-    outputs ``<slug(title)>.flac``).
-    """
+    """Generate tracks directly from the API process, without invoking scripts."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     total = max(1, len(prompts))
-    tail: list[str] = []
-    state = {"done": 0}
+    model_name = _resolve_model_name(model or "auto")
 
-    def handle(line: str) -> None:
-        if line.strip():
-            tail.append(line)
-            del tail[:-40]  # keep a short tail for error messages
-        if on_progress is None:
-            return
-        if "loading model" in line.lower():
-            on_progress(0.12, "Loading model…")
-        elif line.startswith("Saved:"):
-            state["done"] += 1
-            frac = min(0.95, 0.12 + 0.83 * state["done"] / total)
-            on_progress(frac, f"Rendered {state['done']}/{total} track(s)")
+    if on_progress:
+        on_progress(0.12, f"Loading model: {model_name}")
+    loaded_model = _load_model(model_name)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        spec_path = Path(tmp) / "prompts.json"
-        spec_path.write_text(
-            json.dumps(
-                [
-                    {
-                        "title": p["title"],
-                        "prompt": p["prompt"],
-                        "duration": float(p.get("duration", 180)),
-                    }
-                    for p in prompts
-                ]
-            ),
-            encoding="utf-8",
+    produced: list[tuple[dict[str, Any], Path]] = []
+    for index, spec in enumerate(prompts, start=1):
+        if should_cancel and should_cancel():
+            raise RuntimeError("Stable Audio generation cancelled")
+        title = str(spec.get("title") or f"Track {index}")
+        prompt = str(spec.get("prompt") or "")
+        if not prompt:
+            raise ValueError(f"Prompt item {index} must include prompt")
+        duration = float(spec.get("duration", 180))
+        if duration <= 0:
+            raise ValueError(f"Prompt item {index} duration must be positive")
+
+        if on_progress:
+            frac = 0.12 + 0.83 * (index - 1) / total
+            on_progress(frac, f"Rendering {index}/{total}: {title}")
+        path = out_dir / f"{_slugify(title)}.flac"
+        data = _generate_audio_array(loaded_model, prompt, duration, sample_rate)
+        dsp.write_audio_file(
+            path,
+            data,
+            sample_rate,
+            title=title,
+            genre=spec.get("genre"),
+            description=prompt,
+            track_number=index,
         )
-        args = ["--prompts", str(spec_path), "-o", str(out_dir), "-r", str(sample_rate)]
-        if model and model != "auto":
-            args += ["--model", model]
-        code = run_engine_cli_streaming("main.py", args, handle)
-    if code != 0:
-        raise RuntimeError(
-            f"Stable Audio batch failed (exit {code}): {' / '.join(tail[-6:]) or 'no output'}"
-        )
+        produced.append((spec, path))
+        if on_progress:
+            frac = min(0.95, 0.12 + 0.83 * index / total)
+            on_progress(frac, f"Rendered {index}/{total} track(s)")
 
-    produced = [(p, out_dir / f"{_slugify(p['title'])}.flac") for p in prompts]
-    produced = [(p, path) for p, path in produced if path.exists()]
     if not produced:
-        raise RuntimeError("Stable Audio produced no tracks (check the parent engine env).")
+        raise RuntimeError("Stable Audio produced no tracks.")
     return produced

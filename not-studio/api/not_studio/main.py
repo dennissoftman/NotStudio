@@ -10,12 +10,21 @@ from .config import get_settings
 from .db import init_db
 from .routers import api_router
 from .prompt_generation import prompt_provider_infos
+from .tasks.jobs import fail_interrupted_jobs, mark_jobs_cancelled_by_shutdown
+from .tasks.processes import shutdown_reusable_processes
+from .tasks.registry import shutdown_job_tasks
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    yield
+    await fail_interrupted_jobs()
+    try:
+        yield
+    finally:
+        job_ids = await shutdown_job_tasks()
+        await mark_jobs_cancelled_by_shutdown(job_ids)
+        await shutdown_reusable_processes()
 
 
 def create_app() -> FastAPI:

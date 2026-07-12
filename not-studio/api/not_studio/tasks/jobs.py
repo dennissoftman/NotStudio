@@ -8,9 +8,12 @@ from typing import Any
 
 from ..audio import dsp
 from ..config import get_settings
-from ..constants import new_id, utcnow
+from ..constants import utcnow
 from ..db import session_scope
 from ..models import HistoryItem, Job
+from .processes import reusable_process_busy, run_in_process, run_in_reusable_process
+
+RUNNING_STATUSES = ("queued", "in_progress")
 
 
 async def update_job(job_id: str, **fields: Any) -> None:
@@ -18,10 +21,58 @@ async def update_job(job_id: str, **fields: Any) -> None:
         job = await session.get(Job, job_id)
         if job is None:
             return
+        if (
+            job.status in ("completed", "failed", "cancelled")
+            and fields.get("status") != job.status
+        ):
+            return
         for key, value in fields.items():
             setattr(job, key, value)
         session.add(job)
         await session.commit()
+
+
+async def fail_interrupted_jobs() -> int:
+    """Mark non-terminal jobs from a previous API process as unrecoverable."""
+    from sqlmodel import select
+
+    async with session_scope() as session:
+        res = await session.execute(select(Job).where(Job.status.in_(RUNNING_STATUSES)))
+        jobs = list(res.scalars().all())
+        now = utcnow()
+        for job in jobs:
+            job.status = "failed"
+            job.finished_at = now
+            job.error = "API restarted before this local job finished"
+            job.message = "Interrupted by API restart"
+            session.add(job)
+        await session.commit()
+        return len(jobs)
+
+
+async def mark_jobs_cancelled_by_shutdown(job_ids: set[str]) -> int:
+    if not job_ids:
+        return 0
+    async with session_scope() as session:
+        jobs = [job for job in [await session.get(Job, job_id) for job_id in job_ids] if job]
+        now = utcnow()
+        count = 0
+        for job in jobs:
+            if job.status not in RUNNING_STATUSES:
+                continue
+            job.status = "cancelled"
+            job.finished_at = now
+            job.message = "Cancelled by API shutdown"
+            session.add(job)
+            count += 1
+        await session.commit()
+        return count
+
+
+async def is_job_cancelled(job_id: str) -> bool:
+    async with session_scope() as session:
+        job = await session.get(Job, job_id)
+        return job is None or job.status == "cancelled"
 
 
 async def generate_tracks_job(job_id: str) -> dict[str, Any]:
@@ -36,6 +87,8 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
             return {"error": "job row missing"}
 
     params = job.params or {}
+    if job.status == "cancelled":
+        return {"cancelled": True}
     prompts = list(params.get("prompts") or [])
     album = dict(params.get("album") or {})
     provider = params.get("provider") or settings.default_music_provider
@@ -46,33 +99,55 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
         return {"error": "no prompts"}
 
     try:
-        rendered = await asyncio.to_thread(
-            _render_tracks,
-            job_id,
-            prompts,
-            provider,
-            model,
-            sr,
-            ch,
-            settings.audio_dir,
-        )
+        if provider == "stable_audio_local":
+            if reusable_process_busy("stable-audio-local"):
+                await update_job(job_id, progress=0.05, message="Queued for local model")
+            produced = await run_in_reusable_process(
+                "stable-audio-local",
+                _render_tracks,
+                job_id,
+                prompts,
+                provider,
+                model,
+                sr,
+                ch,
+                settings.audio_dir,
+            )
+        else:
+            produced = await run_in_process(
+                _render_tracks,
+                job_id,
+                prompts,
+                provider,
+                model,
+                sr,
+                ch,
+                settings.audio_dir,
+            )
+    except asyncio.CancelledError:
+        await update_job(job_id, status="cancelled", message="Cancelled", finished_at=utcnow())
+        return {"cancelled": True}
     except Exception as exc:  # noqa: BLE001
+        if await is_job_cancelled(job_id):
+            return {"cancelled": True}
         await update_job(job_id, status="failed", error=str(exc), finished_at=utcnow())
         return {"error": str(exc)}
 
     track_ids: list[str] = []
+    if await is_job_cancelled(job_id):
+        return {"cancelled": True}
     async with session_scope() as session:
-        for spec, data in rendered:
-            path = settings.audio_dir / f"track-{new_id()}.flac"
-            await asyncio.to_thread(dsp.write_audio_file, str(path), data, sr)
+        for spec, path_value in produced:
+            path = Path(path_value)
+            info = await asyncio.to_thread(dsp.audio_file_info, str(path))
             item = HistoryItem(
                 kind="track",
                 title=spec.get("title", "Track"),
                 job_id=job_id,
                 path=str(path),
-                sample_rate=sr,
-                channels=ch,
-                duration_seconds=len(data) / sr,
+                sample_rate=info["sample_rate"],
+                channels=info["channels"],
+                duration_seconds=info["duration_seconds"],
                 size_bytes=path.stat().st_size if path.exists() else 0,
                 meta={
                     "prompt": spec.get("prompt", ""),
@@ -107,8 +182,7 @@ def _render_tracks(
     sample_rate: int,
     channels: int,
     audio_dir: Path,
-) -> list[tuple[dict[str, Any], Any]]:
-    rendered: list[tuple[dict[str, Any], Any]] = []
+) -> list[tuple[dict[str, Any], str]]:
     if provider == "stable_audio_local":
         from ..backends.stable_audio import generate_batch
     elif provider == "stable_audio_runpod":
@@ -119,16 +193,20 @@ def _render_tracks(
     def progress(fraction: float, message: str) -> None:
         asyncio.run(update_job(job_id, progress=fraction, message=message))
 
+    def should_cancel() -> bool:
+        return asyncio.run(is_job_cancelled(job_id))
+
     produced = generate_batch(
         prompts,
         sample_rate=sample_rate,
         model=model,
         out_dir=audio_dir / f"gen-{job_id}",
         on_progress=progress,
+        should_cancel=should_cancel,
     )
-    for spec, path in produced:
-        rendered.append((spec, dsp.load_audio_file(str(path), sample_rate, channels)))
-    return rendered
+    if should_cancel():
+        raise RuntimeError("Track generation cancelled")
+    return [(spec, str(path)) for spec, path in produced]
 
 
 async def make_video_job(job_id: str) -> dict[str, Any]:
@@ -141,6 +219,8 @@ async def make_video_job(job_id: str) -> dict[str, Any]:
         job = await session.get(Job, job_id)
         if job is None:
             return {"error": "job row missing"}
+        if job.status == "cancelled":
+            return {"cancelled": True}
         params = job.params or {}
         item_ids = list(params.get("item_ids") or [])
         items = [it for it in [await session.get(HistoryItem, i) for i in item_ids] if it]
@@ -150,7 +230,7 @@ async def make_video_job(job_id: str) -> dict[str, Any]:
         return {"error": "no tracks"}
 
     try:
-        out_path, duration = await asyncio.to_thread(
+        out_path, duration = await run_in_process(
             _render_video,
             settings.audio_dir,
             settings.videos_dir,
@@ -163,10 +243,17 @@ async def make_video_job(job_id: str) -> dict[str, Any]:
             str(params.get("visualizer", "cqt")),
             params.get("title"),
         )
+    except asyncio.CancelledError:
+        await update_job(job_id, status="cancelled", message="Cancelled", finished_at=utcnow())
+        return {"cancelled": True}
     except Exception as exc:  # noqa: BLE001
+        if await is_job_cancelled(job_id):
+            return {"cancelled": True}
         await update_job(job_id, status="failed", error=str(exc), finished_at=utcnow())
         return {"error": str(exc)}
 
+    if await is_job_cancelled(job_id):
+        return {"cancelled": True}
     async with session_scope() as session:
         item = HistoryItem(
             kind="video",

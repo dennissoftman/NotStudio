@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import importlib.util
 from typing import Any
 
-from .. import engine_bridge
 from ..config import get_settings
 from ..schemas import MusicProviderInfo
 
 
 def _probe_stable_audio_local() -> tuple[bool, str]:
-    if not engine_bridge.engine_has("main.py"):
-        return False, "Parent engine main.py not found."
-    if not engine_bridge.submodule_checked_out("stable-audio-3"):
-        return False, "stable-audio-3 submodule not checked out."
-    if not engine_bridge.engine_venv_ready():
-        return False, "Parent engine env not synced. Run `uv sync` in the repo root."
-    return True, "Reuses parent main.py (Stable Audio 3) via `uv run --no-sync`."
+    if importlib.util.find_spec("stable_audio_3") is None:
+        return (
+            False,
+            "stable-audio-3 is not installed in the API environment. Run `uv sync` in api/.",
+        )
+    return True, "Runs Stable Audio 3 directly inside a cancellable API worker process."
 
 
 def _probe_stable_audio_runpod() -> tuple[bool, str]:

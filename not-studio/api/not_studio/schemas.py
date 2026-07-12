@@ -30,6 +30,7 @@ class GenerateAlbumRequest(BaseModel):
     styles: list[str] = Field(default_factory=list, max_length=8)
     track_count: int = Field(default=4, ge=1, le=20)
     duration: float = Field(default=180.0, ge=15.0, le=900.0)
+    duration_variation_percent: float = Field(default=0.0, ge=0.0, le=50.0)
     album_title: str | None = Field(default=None, max_length=120)
     provider: MusicProvider | None = None
     model: str | None = None

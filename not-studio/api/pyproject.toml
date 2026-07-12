@@ -17,7 +17,11 @@ dependencies = [
     "python-multipart>=0.0.9",
     "httpx>=0.27",
     "boto3>=1.35",
+    "stable-audio-3",
 ]
+
+[tool.uv.sources]
+stable-audio-3 = { path = "../../stable-audio-3" }
 
 [project.scripts]
 # `uv run dev` — API + Vite UI, one command.

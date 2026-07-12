@@ -8,8 +8,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Stable anchors regardless of the process working directory.
 _PACKAGE_DIR = Path(__file__).resolve().parent  # .../api/not_studio
 _API_DIR = _PACKAGE_DIR.parent  # .../api
-_SUBPROJECT_DIR = _API_DIR.parent  # .../not-studio
-_REPO_ROOT = _SUBPROJECT_DIR.parent  # parent engine root
 
 
 class Settings(BaseSettings):
@@ -32,10 +30,6 @@ class Settings(BaseSettings):
     # Audio defaults -------------------------------------------------------
     sample_rate: int = 44100
     channels: int = 2
-
-    # Reuse of the parent audio engine (real backends via subprocess)
-    engine_root: Path = _REPO_ROOT
-    uv_path: str = "uv"
 
     # Track generation -----------------------------------------------------
     default_music_provider: str = "stable_audio_local"
@@ -67,7 +61,6 @@ class Settings(BaseSettings):
         self.data_dir.mkdir(parents=True, exist_ok=True)
         if not self.database_url:
             self.database_url = f"sqlite+aiosqlite:///{self.data_dir / 'not-studio.db'}"
-        self.engine_root = self.engine_root.expanduser().resolve()
 
     def _subdir(self, name: str) -> Path:
         path = self.data_dir / name

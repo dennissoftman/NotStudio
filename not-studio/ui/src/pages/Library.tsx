@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type HistoryItem, type TrackVerdict } from "../api/client";
 import {
   useDeleteHistory,
+  useCancelJob,
+  useDeleteJob,
   useJobs,
   useMakeVideo,
   useReviewTrack,
@@ -54,6 +56,8 @@ export default function Library() {
   const { data: videos } = useVideos();
   const { data: jobs } = useJobs();
   const makeVideo = useMakeVideo();
+  const cancelJob = useCancelJob();
+  const deleteJob = useDeleteJob();
   const review = useReviewTrack();
   const del = useDeleteHistory();
 
@@ -235,9 +239,27 @@ export default function Library() {
           <div className="mt-3 grid gap-2">
             {videoJobs.map((j) => (
               <Card key={j.id} className="!py-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-300">{j.message || "rendering"}</span>
-                  <StatusBadge status={j.status} />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0 text-sm text-slate-300">{j.message || "rendering"}</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <StatusBadge status={j.status} />
+                    {(j.status === "queued" || j.status === "in_progress") && (
+                      <button
+                        className="btn-danger !text-xs"
+                        disabled={cancelJob.isPending}
+                        onClick={() => cancelJob.mutate(j.id)}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      className="btn-ghost !text-xs"
+                      disabled={deleteJob.isPending}
+                      onClick={() => deleteJob.mutate(j.id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
                 {j.status === "in_progress" && (
                   <div className="mt-2">

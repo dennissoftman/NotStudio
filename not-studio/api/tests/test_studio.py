@@ -1,10 +1,10 @@
-"""Studio track-generation progress: stream main.py output -> per-track callbacks."""
+"""Studio track-generation progress and API workflow behavior."""
 
 import asyncio
 import json
-from pathlib import Path
 
 import httpx
+import numpy as np
 
 from not_studio.backends import runpod_stable_audio
 from not_studio.backends import stable_audio
@@ -23,17 +23,18 @@ def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
         {"title": "Track Two", "prompt": "deep bass", "duration": 5},
     ]
 
-    def fake_stream(script, args, on_line, timeout=None):
-        # Emulate main.py --prompts: announce model load, then a line per track.
-        on_line("Loading model: medium")
-        out_dir = Path(args[args.index("-o") + 1])
-        for spec in prompts:
-            flac = out_dir / f"{stable_audio._slugify(spec['title'])}.flac"
-            flac.write_bytes(b"stub")
-            on_line(f"Saved: {flac}")
-        return 0
-
-    monkeypatch.setattr(stable_audio, "run_engine_cli_streaming", fake_stream)
+    monkeypatch.setattr(stable_audio, "_resolve_model_name", lambda requested: requested)
+    monkeypatch.setattr(stable_audio, "_load_model", lambda model_name: object())
+    monkeypatch.setattr(
+        stable_audio,
+        "_generate_audio_array",
+        lambda model, prompt, duration, output_rate: np.zeros((output_rate, 2)),
+    )
+    monkeypatch.setattr(
+        stable_audio.dsp,
+        "write_audio_file",
+        lambda path, audio, sample_rate, **kwargs: path.write_bytes(b"stub"),
+    )
 
     updates: list[tuple[float, str]] = []
     produced = stable_audio.generate_batch(
@@ -45,8 +46,10 @@ def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
     )
 
     assert len(produced) == 2
+    assert all(path.exists() for _, path in produced)
     messages = [m for _, m in updates]
     assert any("Loading model" in m for m in messages)
+    assert any("Rendering 1/2: Track One" in m for m in messages)
     assert any("1/2" in m for m in messages) and any("2/2" in m for m in messages)
     # progress is monotonic and ends near-complete (before the import/persist step)
     fractions = [f for f, _ in updates]
@@ -54,13 +57,9 @@ def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
     assert fractions[-1] >= 0.9
 
 
-def test_generate_batch_raises_with_output_tail(tmp_path, monkeypatch):
-    def fake_stream(script, args, on_line, timeout=None):
-        on_line("Traceback (most recent call last):")
-        on_line("RuntimeError: CUDA out of memory")
-        return 1
-
-    monkeypatch.setattr(stable_audio, "run_engine_cli_streaming", fake_stream)
+def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
+    monkeypatch.setattr(stable_audio, "_resolve_model_name", lambda requested: requested)
+    monkeypatch.setattr(stable_audio, "_load_model", lambda model_name: object())
 
     try:
         stable_audio.generate_batch(
@@ -68,11 +67,12 @@ def test_generate_batch_raises_with_output_tail(tmp_path, monkeypatch):
             sample_rate=44100,
             model="medium",
             out_dir=tmp_path / "out",
+            should_cancel=lambda: True,
         )
     except RuntimeError as exc:
-        assert "exit 1" in str(exc) and "CUDA out of memory" in str(exc)
+        assert "cancelled" in str(exc)
     else:
-        raise AssertionError("expected RuntimeError on non-zero exit")
+        raise AssertionError("expected RuntimeError on cancellation")
 
 
 def test_runpod_generate_batch_sends_one_request_and_writes_tracks(tmp_path, monkeypatch):
@@ -137,6 +137,7 @@ def test_build_album_prompts_from_music_controls():
         styles=["deep house", "synthwave"],
         track_count=3,
         duration=120,
+        duration_variation_percent=20,
         album_title="Late Roads",
     )
 
@@ -144,6 +145,9 @@ def test_build_album_prompts_from_music_controls():
 
     assert len(prompts) == 3
     assert prompts[0]["title"] == "Late Roads 01"
+    assert [p["duration"] for p in prompts] == [96.0, 120.0, 144.0]
+    assert prompts[0]["target_duration"] == 120
+    assert prompts[0]["duration_variation_percent"] == 20
     assert prompts[0]["mood"] == "night drive"
     assert prompts[0]["styles"] == ["deep house", "synthwave"]
     assert "night drive mood" in prompts[0]["prompt"]

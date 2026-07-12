@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -25,15 +25,29 @@ from ..prompt_generation import generate_prompt_ideas, prompt_provider_infos
 router = APIRouter(prefix="/studio", tags=["studio"])
 
 
+def _track_duration(
+    base_duration: float, variation_percent: float, index: int, total: int
+) -> float:
+    if variation_percent <= 0 or total <= 1:
+        return base_duration
+    spread = variation_percent / 100.0
+    position = (index - 1) / (total - 1)
+    deviation = (position * 2.0) - 1.0
+    duration = round(base_duration * (1.0 + deviation * spread))
+    return float(max(15, min(900, duration)))
+
+
 def build_album_prompts(payload: GenerateAlbumRequest) -> list[dict]:
     """Translate product controls into concrete music prompts for the backend."""
     mood = payload.mood.strip()
     styles = [s.strip() for s in payload.styles if s.strip()]
     style_text = ", ".join(styles) if styles else "genre-fluid instrumental"
     album = payload.album_title.strip() if payload.album_title else mood.title()
+    variation = payload.duration_variation_percent
 
     prompts: list[dict] = []
     for index in range(1, payload.track_count + 1):
+        duration = _track_duration(payload.duration, variation, index, payload.track_count)
         prompt = (
             f"{mood} mood, {style_text}, instrumental full track, polished arrangement, "
             f"track {index} of {payload.track_count}, no vocals"
@@ -42,7 +56,9 @@ def build_album_prompts(payload: GenerateAlbumRequest) -> list[dict]:
             {
                 "title": f"{album} {index:02d}",
                 "prompt": prompt,
-                "duration": payload.duration,
+                "duration": duration,
+                "target_duration": payload.duration,
+                "duration_variation_percent": variation,
                 "mood": mood,
                 "styles": styles,
                 "album_title": album,
@@ -56,13 +72,11 @@ def build_album_prompts(payload: GenerateAlbumRequest) -> list[dict]:
 @router.post("/albums/generate", response_model=Job, status_code=201)
 async def generate_album(
     payload: GenerateAlbumRequest,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> Job:
     """Generate an album candidate batch from mood, style and track count controls."""
     prompts = build_album_prompts(payload)
     return await submit_generate_tracks(
-        background_tasks,
         session,
         prompts=prompts,
         provider=payload.provider,
@@ -73,6 +87,7 @@ async def generate_album(
             "styles": [s.strip() for s in payload.styles if s.strip()],
             "track_count": payload.track_count,
             "duration": payload.duration,
+            "duration_variation_percent": payload.duration_variation_percent,
         },
     )
 
@@ -80,14 +95,12 @@ async def generate_album(
 @router.post("/generate", response_model=Job, status_code=201)
 async def generate(
     payload: GenerateTracksRequest,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> Job:
     """Generate tracks from a prompt list (local Stable Audio 3 by default)."""
     if not payload.prompts:
         raise HTTPException(status_code=400, detail="Provide at least one prompt")
     return await submit_generate_tracks(
-        background_tasks,
         session,
         prompts=[p.model_dump() for p in payload.prompts],
         provider=payload.provider,
@@ -143,14 +156,12 @@ async def review_track(
 @router.post("/videos", response_model=Job, status_code=201)
 async def make_video(
     payload: MakeVideoRequest,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> Job:
     """Crossfade the selected tracks and render a YouTube-ready video."""
     if not payload.item_ids:
         raise HTTPException(status_code=400, detail="Select at least one track")
     return await submit_make_video(
-        background_tasks,
         session,
         item_ids=payload.item_ids,
         title=payload.title,

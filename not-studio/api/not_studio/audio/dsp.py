@@ -7,7 +7,9 @@ resample through their own pipelines and hand us target-rate audio.
 
 from __future__ import annotations
 
+import warnings
 from math import gcd
+from pathlib import Path
 
 import numpy as np
 import pyloudnorm as pyln
@@ -149,6 +151,27 @@ def normalize_lufs(data: np.ndarray, sample_rate: int, target_lufs: float | None
     return pyln.normalize.loudness(data, loudness, target_lufs).astype(np.float32)
 
 
+def normalize_loudness_safely(
+    data: np.ndarray,
+    sample_rate: int,
+    target_lufs: float | None = -16.0,
+    peak: float = DEFAULT_PEAK,
+) -> np.ndarray:
+    """Normalize loudness and peak-limit the result to avoid clipped output."""
+    if target_lufs is None:
+        return as_2d(data)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Possible clipped samples in output.",
+            category=UserWarning,
+        )
+        normalized = normalize_lufs(data, sample_rate, target_lufs)
+
+    return peak_limit(normalized, peak)
+
+
 def measure_lufs(data: np.ndarray, sample_rate: int) -> float | None:
     data = as_2d(data)
     if len(data) < int(sample_rate * 0.4):
@@ -178,5 +201,46 @@ def load_audio_file(path: str, target_sr: int, target_channels: int) -> np.ndarr
     return ensure_channels(data, target_channels)
 
 
-def write_audio_file(path: str, data: np.ndarray, sample_rate: int) -> None:
+def audio_file_info(path: str) -> dict[str, float | int]:
+    info = sf.info(path)
+    return {
+        "sample_rate": int(info.samplerate),
+        "channels": int(info.channels),
+        "duration_seconds": float(info.duration),
+    }
+
+
+def write_audio_file(
+    path: str | Path,
+    data: np.ndarray,
+    sample_rate: int,
+    *,
+    title: str | None = None,
+    genre: str | None = None,
+    description: str | None = None,
+    track_number: int | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(path, as_2d(data), sample_rate)
+
+    if path.suffix.lower() != ".flac" or not any(
+        (title, genre, description, track_number is not None)
+    ):
+        return
+
+    try:
+        from mutagen.flac import FLAC
+    except ImportError:
+        return
+
+    audio = FLAC(path)
+    if title:
+        audio["title"] = title
+    if genre:
+        audio["genre"] = genre
+    if description:
+        audio["description"] = description
+    if track_number is not None:
+        audio["tracknumber"] = str(track_number)
+    audio.save()
