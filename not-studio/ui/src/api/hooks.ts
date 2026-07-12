@@ -83,6 +83,14 @@ export function useDeleteJob() {
   });
 }
 
+export function useRetryJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.retryJob(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.jobs }),
+  });
+}
+
 export function useHistory() {
   return useQuery({ queryKey: keys.history, queryFn: api.history });
 }

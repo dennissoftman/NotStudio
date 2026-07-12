@@ -52,7 +52,7 @@ PROVIDERS: dict[str, _Provider] = {
     "stable_audio_local": _Provider(
         "stable_audio_local",
         _probe_stable_audio_local,
-        {"model": "auto"},
+        {"model": "medium"},
     ),
     "stable_audio_runpod": _Provider(
         "stable_audio_runpod",

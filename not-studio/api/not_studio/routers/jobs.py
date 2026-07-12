@@ -7,7 +7,8 @@ from sqlmodel import select
 from ..constants import utcnow
 from ..deps import get_or_404, get_session
 from ..models import HistoryItem, Job
-from ..tasks.registry import cancel_job_task
+from ..tasks.jobs import generate_tracks_job, make_video_job
+from ..tasks.registry import cancel_job_task, start_job_task
 from ..tasks.events import jobs_version, notify_jobs_changed, wait_for_jobs_changed
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -69,6 +70,37 @@ async def cancel(job_id: str, session: AsyncSession = Depends(get_session)) -> J
     cancel_job_task(job_id)
     await notify_jobs_changed()
     return job
+
+
+@router.post("/{job_id}/retry", response_model=Job, status_code=201)
+async def retry(job_id: str, session: AsyncSession = Depends(get_session)) -> Job:
+    original = await get_or_404(session, Job, job_id)
+    if original.status not in ("failed", "cancelled"):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail="Only failed or cancelled jobs can be retried")
+    runners = {
+        "generate_tracks": generate_tracks_job,
+        "make_video": make_video_job,
+    }
+    runner = runners.get(original.type)
+    if runner is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=f"Job type {original.type} cannot be retried")
+    retried = Job(
+        type=original.type,
+        status="queued",
+        params=dict(original.params or {}),
+        message="Queued retry",
+        enqueued_at=utcnow(),
+    )
+    session.add(retried)
+    await session.commit()
+    await session.refresh(retried)
+    await notify_jobs_changed()
+    start_job_task(retried.id, runner)
+    return retried
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)

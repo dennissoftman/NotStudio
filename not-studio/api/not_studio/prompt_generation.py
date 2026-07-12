@@ -126,10 +126,11 @@ Album title: {title}
 Mood: {payload.mood}
 Styles: {styles}
 Taste notes from human reviewer: {payload.taste_notes or "none"}
+Target duration: {payload.duration} seconds, with up to {payload.duration_variation_percent}% variation between tracks
 
 Return strict JSON only:
 [
-  {{"title": "Track title", "prompt": "detailed audio generation prompt", "duration": 180}}
+  {{"title": "Track title", "prompt": "detailed audio generation prompt", "duration": {payload.duration}}}
 ]
 
 Every prompt must be instrumental, specific about arrangement, sound palette, energy, tempo feel,
@@ -223,7 +224,7 @@ def _parse_prompts(text: str, payload: GeneratePromptIdeasRequest) -> list[Promp
         prompt = str(item.get("prompt") or "").strip()
         if not prompt:
             continue
-        duration = float(item.get("duration") or 180)
+        duration = max(15.0, min(900.0, float(item.get("duration") or payload.duration)))
         prompts.append(PromptSpec(title=title, prompt=prompt, duration=duration))
     if not prompts:
         raise HTTPException(status_code=502, detail="Prompt provider returned no usable prompts")

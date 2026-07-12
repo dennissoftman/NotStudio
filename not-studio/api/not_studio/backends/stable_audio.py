@@ -17,13 +17,9 @@ def _slugify(value: str) -> str:
     return slug or "track"
 
 
-def _resolve_model_name(requested_model: str) -> str:
-    if requested_model != "auto":
-        return requested_model
-    import torch
-
-    has_accelerator = torch.cuda.is_available() or torch.backends.mps.is_available()
-    return "medium" if has_accelerator else "small-music"
+def _resolve_model_name(_requested_model: str) -> str:
+    """Not Studio always uses the medium Stable Audio 3 checkpoint."""
+    return "medium"
 
 
 def _load_model(model_name: str) -> Any:
@@ -40,8 +36,12 @@ def _generate_audio_array(model: Any, prompt: str, duration: float, output_rate:
     import torch
     from torchaudio.functional import resample
 
-    audio = model.generate(prompt=prompt, duration=duration)[0].cpu()
     model_sample_rate = int(model.model.sample_rate)
+    # Stable Audio's convenience API defaults to a ~120 second sample buffer.
+    # It adapts shorter requests down, but cannot grow beyond that buffer unless
+    # the caller supplies a matching upper bound.
+    sample_size = int((duration + 7.0) * model_sample_rate)
+    audio = model.generate(prompt=prompt, duration=duration, sample_size=sample_size)[0].cpu()
     if output_rate != model_sample_rate:
         audio = resample(audio, model_sample_rate, output_rate)
 
@@ -65,7 +65,7 @@ def generate_batch(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     total = max(1, len(prompts))
-    model_name = _resolve_model_name(model or "auto")
+    model_name = _resolve_model_name(model)
 
     if on_progress:
         on_progress(0.12, f"Loading model: {model_name}")
