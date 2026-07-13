@@ -12,15 +12,15 @@ from ..deps import get_session
 from ..models import HistoryItem, Job
 from ..schemas import (
     GenerateAlbumRequest,
-    GeneratePromptIdeasRequest,
-    GeneratePromptIdeasResponse,
     GenerateTracksRequest,
     MakeVideoRequest,
-    PromptProviderInfo,
+    PromptKitResponse,
+    PromptSpec,
+    TasteExample,
+    TasteProfile,
     TrackReviewRequest,
 )
 from ..tasks.submit import submit_generate_tracks, submit_make_video
-from ..prompt_generation import generate_prompt_ideas, prompt_provider_infos
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
@@ -55,6 +55,7 @@ def build_album_prompts(payload: GenerateAlbumRequest) -> list[dict]:
         prompts.append(
             {
                 "title": f"{album} {index:02d}",
+                "genre": styles[0] if styles else "instrumental",
                 "prompt": prompt,
                 "duration": duration,
                 "target_duration": payload.duration,
@@ -105,6 +106,79 @@ async def generate(
         prompts=[p.model_dump() for p in payload.prompts],
         provider=payload.provider,
         model=payload.model,
+    )
+
+
+def _taste_example(item: HistoryItem) -> TasteExample:
+    meta = item.meta or {}
+    review = meta.get("review") or {}
+    genre = str(meta.get("genre") or "").strip()
+    if not genre:
+        styles = meta.get("styles") or []
+        genre = str(styles[0]) if styles else "unspecified"
+    return TasteExample(
+        title=item.title,
+        genre=genre,
+        prompt=str(meta.get("prompt") or ""),
+        note=review.get("note"),
+    )
+
+
+def _genres(examples: list[TasteExample]) -> set[str]:
+    return {example.genre for example in examples}
+
+
+@router.get("/prompt-kit", response_model=PromptKitResponse)
+async def get_prompt_kit(session: AsyncSession = Depends(get_session)) -> PromptKitResponse:
+    """Return a GPT-ready prompt contract enriched with the user's reviews."""
+    res = await session.execute(
+        select(HistoryItem)
+        .where(HistoryItem.kind == "track")
+        .order_by(HistoryItem.created_at.desc())
+        .limit(500)
+    )
+    liked: list[TasteExample] = []
+    disliked: list[TasteExample] = []
+    for item in res.scalars().all():
+        verdict = (item.meta or {}).get("review", {}).get("verdict", "unreviewed")
+        if verdict == "liked":
+            if len(liked) < 20:
+                liked.append(_taste_example(item))
+        elif verdict == "disliked":
+            if len(disliked) < 20:
+                disliked.append(_taste_example(item))
+
+    item_schema = PromptSpec.model_json_schema()
+    return PromptKitResponse(
+        task=(
+            "Create a coherent batch of instrumental music-generation prompts. "
+            "Return only the JSON array described by output_schema."
+        ),
+        requirements=[
+            "Use liked examples as positive taste signals and disliked examples as negative signals.",
+            "Infer reusable musical preferences; do not copy prior titles or prompts verbatim.",
+            "Make each prompt specific about arrangement, instrumentation, texture, energy, and tempo feel.",
+            "Avoid artist names and copyrighted song references.",
+            "Keep duration between 15 and 900 seconds and provide a genre for every track.",
+        ],
+        output_schema={"type": "array", "minItems": 1, "maxItems": 20, "items": item_schema},
+        example=[
+            PromptSpec(
+                title="Glass Transit",
+                genre="ambient techno",
+                prompt=(
+                    "Instrumental ambient techno with a restrained four-on-the-floor pulse, "
+                    "granular pads, muted sub bass, slow harmonic movement, and a spacious outro"
+                ),
+                duration=180,
+            )
+        ],
+        taste_profile=TasteProfile(
+            liked_genres=_genres(liked),
+            disliked_genres=_genres(disliked),
+            liked_examples=liked,
+            disliked_examples=disliked,
+        ),
     )
 
 
@@ -166,18 +240,9 @@ async def make_video(
         item_ids=payload.item_ids,
         title=payload.title,
         visualizer=payload.visualizer,
+        resolution=payload.resolution,
         crossfade_seconds=payload.crossfade_seconds,
     )
-
-
-@router.get("/prompt-providers", response_model=list[PromptProviderInfo])
-async def list_prompt_providers() -> list[PromptProviderInfo]:
-    return prompt_provider_infos()
-
-
-@router.post("/prompts/generate", response_model=GeneratePromptIdeasResponse)
-async def generate_prompts(payload: GeneratePromptIdeasRequest) -> GeneratePromptIdeasResponse:
-    return await generate_prompt_ideas(payload)
 
 
 @router.get("/videos", response_model=list[HistoryItem])

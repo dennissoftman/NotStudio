@@ -45,18 +45,6 @@ class Settings(BaseSettings):
     runpod_s3_secret_access_key: str = ""
     runpod_s3_region: str = ""
 
-    # LLM prompt generation ------------------------------------------------
-    lm_studio_base_url: str = "http://localhost:1234/v1"
-    lm_studio_api_key: str = ""
-    lm_studio_model: str = "local-model"
-    openai_base_url: str = "https://api.openai.com/v1"
-    openai_api_key: str = ""
-    openai_model: str = "gpt-5.5"
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-5"
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
-
     def model_post_init(self, __context: object) -> None:
         self.data_dir = self.data_dir.expanduser().resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)

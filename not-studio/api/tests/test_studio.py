@@ -175,6 +175,7 @@ def test_build_album_prompts_from_music_controls():
 
     assert len(prompts) == 3
     assert prompts[0]["title"] == "Late Roads 01"
+    assert prompts[0]["genre"] == "deep house"
     assert [p["duration"] for p in prompts] == [96.0, 120.0, 144.0]
     assert prompts[0]["target_duration"] == 120
     assert prompts[0]["duration_variation_percent"] == 20

@@ -5,21 +5,19 @@ on album batches, taste review, regeneration, and mix rendering.
 
 ## Workflow
 
-1. Choose a mood.
-2. Choose one or more styles.
-3. Optionally ask an LLM to draft audio-generation prompts.
-4. Choose a track count and generate a batch.
-5. Listen to each track and mark it liked/disliked.
-6. Regenerate until there are enough liked tracks.
-7. Make a mix from the liked tracks.
-8. Download the rendered MP4 for YouTube upload.
+1. Copy the GPT prompt kit from the Generate page.
+2. Ask GPT to draft a JSON track plan using the included schema and taste profile.
+3. Paste the JSON plan into Not Studio and generate a batch.
+4. Listen to each track and mark it liked/disliked.
+5. Use the refreshed prompt kit so the next GPT batch learns from those reviews.
+6. Make a mix from the liked tracks and download the rendered MP4.
 
 ## Capabilities
 
 | Capability | Where |
 |---|---|
-| Album generation controls | `ui/src/pages/Generate.tsx`, `/api/studio/albums/generate` |
-| LLM prompt ideation | `/api/studio/prompts/generate` |
+| Paste-first prompt generation | `ui/src/pages/Generate.tsx`, `/api/studio/generate` |
+| GPT schema + taste export | `/api/studio/prompt-kit` |
 | Human review state | `/api/studio/tracks/{id}/review` |
 | Track history/playback | `/api/studio/tracks`, `/api/history/{id}/audio` |
 | Mix/video rendering | `/api/studio/videos` |
@@ -35,7 +33,6 @@ not-studio/
 │       ├── audio/         # DSP helpers
 │       ├── routers/       # REST API
 │       ├── tasks/         # local background jobs
-│       ├── prompt_generation.py
 │       └── video_export.py
 ├── runpod/                # deployable Stable Audio batch worker
 └── ui/                    # React + Vite + TypeScript UI
@@ -68,24 +65,27 @@ Build the UI from `ui/`:
 npm run build
 ```
 
-## LLM Prompt Providers
+## Prompt plans and taste
 
-The Generate page can ask one of these providers to produce editable audio
-prompts before track generation:
+Not Studio does not run an embedded LLM. The UI exposes a copyable GPT prompt
+kit containing the exact JSON schema, an example, and up to 20 recent liked and
+disliked prompts. Every prompt item requires `title`, `genre`, `prompt`, and
+`duration`. After reviews change, copying the kit again includes the new taste
+signals automatically.
 
-| Provider | Config |
-|---|---|
-| LM Studio | Start the local server, default `NOT_STUDIO_LM_STUDIO_BASE_URL=http://localhost:1234/v1` |
-| OpenAI | `NOT_STUDIO_OPENAI_API_KEY`, optional `NOT_STUDIO_OPENAI_MODEL` |
-| Anthropic | `NOT_STUDIO_ANTHROPIC_API_KEY`, optional `NOT_STUDIO_ANTHROPIC_MODEL` |
-| Gemini | `NOT_STUDIO_GEMINI_API_KEY`, optional `NOT_STUDIO_GEMINI_MODEL` |
+## Mix export
 
-Copy `api/.env.example` to `api/.env` for the full list.
+The Review page can export 2160p, 1440p, 1080p, or 720p H.264 video. Audio is
+encoded once into the MP4 as AAC-LC without increasing the source mix sample
+rate, channel count, or bitrate. When source tracks differ, the mix uses the
+lowest native sample rate and channel count so no lower-quality input is
+interpolated upward. Crossfading is streamed through ffmpeg, so the full album
+is not loaded into a growing in-memory buffer before rendering.
 
 ## Audio Generation
 
-`Stable Audio / Local` runs the parent repo's `main.py --prompts` command once
-for the whole batch. Sync the root environment and check out `stable-audio-3`.
+`Stable Audio / Local` runs directly in a cancellable API worker process using
+the checked-out `stable-audio-3` package.
 
 `Stable Audio / RunPod` sends the entire batch to one RunPod Serverless
 `/runsync` request. The worker writes FLAC files to an attached network volume;
@@ -130,7 +130,7 @@ The endpoint input remains JSON:
 ```json
 {
   "input": {
-    "prompts": [{"title": "Track 01", "prompt": "...", "duration": 180}],
+    "prompts": [{"title": "Track 01", "genre": "deep house", "prompt": "...", "duration": 180}],
     "model": "medium",
     "sample_rate": 44100
   }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { PauseIcon, PlayIcon, XIcon } from "./icons";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
@@ -94,12 +95,20 @@ export function Empty({ children }: { children: ReactNode }) {
 
 const AUDIO_PLAY_EVENT = "not-studio:audio-play";
 
-export function AudioPlayer({ src, label }: { src: string; label: string }) {
+export function AudioPlayer({
+  src,
+  label,
+  durationSeconds = 0,
+}: {
+  src: string;
+  label: string;
+  durationSeconds?: number;
+}) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const idRef = useRef(Math.random().toString(36).slice(2));
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(durationSeconds);
 
   useEffect(() => {
     const pauseOther = (event: Event) => {
@@ -122,10 +131,10 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
 
   const max = duration || 0;
   return (
-    <div className="flex min-w-64 max-w-full items-center gap-2 rounded-full border border-ink-600 bg-ink-950 px-2 py-1">
+    <div className="audio-player min-w-64 max-w-full">
       <audio
         ref={audioRef}
-        preload="metadata"
+        preload="none"
         src={src}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
@@ -136,10 +145,10 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
       <button
         type="button"
         aria-label={`${playing ? "Pause" : "Play"} ${label}`}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs text-white hover:bg-accent-soft"
+        className="audio-play-button"
         onClick={toggle}
       >
-        {playing ? "Ⅱ" : "▶"}
+        {playing ? <PauseIcon className="h-4 w-4" /> : <PlayIcon className="h-4 w-4 translate-x-px" />}
       </button>
       <span className="w-9 shrink-0 text-right text-[11px] tabular-nums text-slate-400">
         {fmtDuration(currentTime)}
@@ -190,8 +199,8 @@ export function Modal({
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-semibold text-slate-100">{title}</h3>
-          <button className="text-slate-400 hover:text-slate-200" onClick={onClose}>
-            ✕
+          <button className="icon-button" aria-label="Close" onClick={onClose}>
+            <XIcon className="h-4 w-4" />
           </button>
         </div>
         {children}

@@ -1,8 +1,8 @@
 // Typed client for the Not Studio API.
 
 export type MusicProvider = "stable_audio_local" | "stable_audio_runpod";
-export type PromptProvider = "lm_studio" | "gemini" | "openai" | "anthropic";
 export type TrackVerdict = "liked" | "disliked" | "unreviewed";
+export type VideoResolution = "2160p" | "1440p" | "1080p" | "720p";
 export type JobStatus = "queued" | "in_progress" | "completed" | "failed" | "cancelled";
 
 export interface MusicProviderInfo {
@@ -13,17 +13,31 @@ export interface MusicProviderInfo {
   default_config: Record<string, unknown>;
 }
 
-export interface PromptProviderInfo {
-  provider: PromptProvider;
-  available: boolean;
-  detail: string;
-  default_model: string;
-}
-
 export interface PromptSpec {
   title: string;
+  genre: string;
   prompt: string;
   duration: number;
+}
+
+export interface TasteExample {
+  title: string;
+  genre: string;
+  prompt: string;
+  note: string | null;
+}
+
+export interface PromptKit {
+  task: string;
+  requirements: string[];
+  output_schema: Record<string, unknown>;
+  example: PromptSpec[];
+  taste_profile: {
+    liked_genres: string[];
+    disliked_genres: string[];
+    liked_examples: TasteExample[];
+    disliked_examples: TasteExample[];
+  };
 }
 
 export interface Job {
@@ -60,7 +74,6 @@ export interface Health {
   status: string;
   jobs: string;
   providers: MusicProviderInfo[];
-  prompt_providers: PromptProviderInfo[];
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -112,12 +125,7 @@ export const api = {
   makeVideo: (data: unknown) =>
     req<Job>("/studio/videos", { method: "POST", body: body(data) }),
   videos: () => req<HistoryItem[]>("/studio/videos"),
-  promptProviders: () => req<PromptProviderInfo[]>("/studio/prompt-providers"),
-  generatePromptIdeas: (data: unknown) =>
-    req<{ prompts: PromptSpec[]; provider: PromptProvider; model: string }>("/studio/prompts/generate", {
-      method: "POST",
-      body: body(data),
-    }),
+  promptKit: () => req<PromptKit>("/studio/prompt-kit"),
 };
 
 export function jobsWebSocketUrl(): string {

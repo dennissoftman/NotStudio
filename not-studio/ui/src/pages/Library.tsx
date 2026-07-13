@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type HistoryItem, type TrackVerdict } from "../api/client";
+import { api, type HistoryItem, type TrackVerdict, type VideoResolution } from "../api/client";
 import {
   useDeleteHistory,
   useCancelJob,
@@ -22,6 +22,15 @@ import {
   cx,
   fmtDuration,
 } from "../components/ui";
+import {
+  ChevronIcon,
+  DownloadIcon,
+  PlusIcon,
+  SparklesIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
+  TrashIcon,
+} from "../components/icons";
 
 type TrackSort = "date-desc" | "date-asc" | "name-asc" | "name-desc" | "duration-asc" | "duration-desc";
 
@@ -33,22 +42,14 @@ function verdictOf(track: HistoryItem): TrackVerdict {
 
 function TrackMeta({ track }: { track: HistoryItem }) {
   const meta = track.meta as Record<string, unknown>;
-  const mood = typeof meta.mood === "string" ? meta.mood : "";
-  const styles = Array.isArray(meta.styles)
-    ? meta.styles.filter((s): s is string => typeof s === "string")
-    : [];
+  const genre = typeof meta.genre === "string" ? meta.genre : "";
   const prompt = typeof meta.prompt === "string" ? meta.prompt : "";
 
   return (
     <div className="min-w-0">
       <div className="truncate font-medium text-slate-100">{track.title}</div>
       <div className="mt-1 flex flex-wrap gap-1.5">
-        {mood && <Badge tone="blue">{mood}</Badge>}
-        {styles.map((style) => (
-          <Badge key={style} tone="gray">
-            {style}
-          </Badge>
-        ))}
+        {genre && <Badge tone="blue">{genre}</Badge>}
       </div>
       {prompt && <div className="mt-1 truncate text-xs text-slate-500">{prompt}</div>}
     </div>
@@ -73,6 +74,7 @@ export default function Library() {
   const [selected, setSelected] = useState<string[]>([]);
   const [title, setTitle] = useState("");
   const [visualizer, setVisualizer] = useState("cqt");
+  const [resolution, setResolution] = useState<VideoResolution>("1080p");
   const [crossfade, setCrossfade] = useState(6);
   const [error, setError] = useState("");
   const [sort, setSort] = useState<TrackSort>("date-desc");
@@ -131,6 +133,7 @@ export default function Library() {
         item_ids: selected,
         title: title || null,
         visualizer,
+        resolution,
         crossfade_seconds: crossfade,
       });
       setSelected([]);
@@ -166,7 +169,7 @@ export default function Library() {
           {([['date', 'Generated'], ['name', 'Name'], ['duration', 'Duration']] as const).map(([key, label]) => {
             const active = sort.startsWith(key);
             const direction = active && sort.endsWith('asc') ? 'asc' : 'desc';
-            return <button key={key} className={cx("rounded-md px-2.5 py-1.5 transition-colors hover:bg-ink-700 hover:text-slate-200", active && "bg-ink-700 text-slate-100")} onClick={() => setSort(`${key}-${active && direction === 'desc' ? 'asc' : 'desc'}` as TrackSort)}>{label} {active ? (direction === 'asc' ? '↑' : '↓') : ''}</button>;
+            return <button key={key} className={cx("inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 transition-colors hover:bg-ink-700 hover:text-slate-200", active && "bg-ink-700 text-slate-100")} onClick={() => setSort(`${key}-${active && direction === 'desc' ? 'asc' : 'desc'}` as TrackSort)}>{label} {active && <ChevronIcon className="h-3.5 w-3.5" direction={direction === "asc" ? "up" : "down"} />}</button>;
           })}
         </div>}
         <div className="grid gap-2">
@@ -179,40 +182,49 @@ export default function Library() {
                   <TrackMeta track={track} />
                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                     <span className="text-xs text-slate-500">{fmtDuration(track.duration_seconds)}</span>
-                    <AudioPlayer src={api.audioUrl(track.id)} label={track.title} />
+                    <AudioPlayer
+                      src={api.audioUrl(track.id)}
+                      label={track.title}
+                      durationSeconds={track.duration_seconds}
+                    />
                     <button
-                      className={cx("btn-ghost !text-xs", verdict === "liked" && "!border-emerald-500 !text-emerald-300")}
+                      className={cx("review-button", verdict === "liked" && "review-button-liked")}
                       onClick={() => setVerdict(track, "liked")}
                       disabled={review.isPending}
+                      aria-label={`${verdict === "liked" ? "Remove like from" : "Like"} ${track.title}`}
+                      title="Like"
                     >
-                      Like
+                      <ThumbsUpIcon className="h-[18px] w-[18px]" />
                     </button>
                     <button
-                      className={cx("btn-ghost !text-xs", verdict === "disliked" && "!border-red-500 !text-red-300")}
+                      className={cx("review-button", verdict === "disliked" && "review-button-disliked")}
                       onClick={() => setVerdict(track, "disliked")}
                       disabled={review.isPending}
+                      aria-label={`${verdict === "disliked" ? "Remove dislike from" : "Dislike"} ${track.title}`}
+                      title="Dislike"
                     >
-                      Dislike
+                      <ThumbsDownIcon className="h-[18px] w-[18px]" />
                     </button>
                     <button
                       onClick={() => toggle(track.id)}
                       title="Select for the mix"
                       disabled={verdict === "disliked"}
                       className={cx(
-                        "flex h-8 min-w-8 shrink-0 items-center justify-center rounded-md border px-2 text-xs font-semibold disabled:opacity-40",
+                        "icon-button h-9 w-9 disabled:opacity-40",
                         idx >= 0
-                          ? "border-accent bg-accent text-white"
-                          : "border-ink-600 text-slate-500 hover:border-accent",
+                          ? "!border-accent !bg-accent !text-white"
+                          : "hover:!border-accent hover:!text-accent-soft",
                       )}
                     >
-                      {idx >= 0 ? idx + 1 : "+"}
+                      {idx >= 0 ? <span className="text-xs font-bold">{idx + 1}</span> : <PlusIcon className="h-4 w-4" />}
                     </button>
                     <button
-                      className="btn-danger !text-xs"
+                      className="icon-button icon-button-danger"
                       onClick={() => del.mutate(track.id)}
+                      aria-label={`Delete ${track.title}`}
                       title="Delete track"
                     >
-                      Delete
+                      <TrashIcon className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -242,6 +254,19 @@ export default function Library() {
                 </select>
               </label>
               <label>
+                <span className="label">Resolution</span>
+                <select
+                  className="input w-auto"
+                  value={resolution}
+                  onChange={(e) => setResolution(e.target.value as VideoResolution)}
+                >
+                  <option value="2160p">2160p / 4K</option>
+                  <option value="1440p">1440p</option>
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                </select>
+              </label>
+              <label>
                 <span className="label">Crossfade seconds</span>
                 <input
                   type="number"
@@ -255,7 +280,7 @@ export default function Library() {
                 disabled={selected.length === 0 || makeVideo.isPending}
                 onClick={combine}
               >
-                Make mix ({selected.length})
+                <SparklesIcon className="h-4 w-4" /> Make mix ({selected.length})
               </button>
               {error && <span className="text-sm text-red-400">{error}</span>}
             </div>
@@ -324,10 +349,10 @@ export default function Library() {
               <video className="w-full rounded-md bg-black" controls preload="none" src={api.audioUrl(video.id)} />
               <div className="mt-2 flex gap-2">
                 <a className="btn-ghost !text-xs" href={api.audioUrl(video.id)} download>
-                  Download MP4
+                  <DownloadIcon className="h-4 w-4" /> Download MP4
                 </a>
-                <button className="btn-danger !text-xs" onClick={() => del.mutate(video.id)}>
-                  Delete
+                <button className="icon-button icon-button-danger" aria-label={`Delete ${video.title}`} title="Delete mix" onClick={() => del.mutate(video.id)}>
+                  <TrashIcon className="h-4 w-4" />
                 </button>
               </div>
             </Card>

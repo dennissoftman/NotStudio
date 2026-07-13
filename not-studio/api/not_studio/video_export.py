@@ -9,14 +9,18 @@ import tempfile
 from functools import lru_cache
 from pathlib import Path
 
-import numpy as np
-
 from .audio import dsp
 
 FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 FFPROBE = shutil.which("ffprobe") or "ffprobe"
 
 VISUALIZERS = ("cqt", "spectrum", "waves", "none")
+RESOLUTIONS = {
+    "2160p": (3840, 2160),
+    "1440p": (2560, 1440),
+    "1080p": (1920, 1080),
+    "720p": (1280, 720),
+}
 
 _FONT_CANDIDATES = (
     "/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -28,26 +32,82 @@ _FONT_CANDIDATES = (
 )
 
 
-def crossfade_tracks(
+def mix_tracks_to_file(
     paths: list[str],
+    output_path: Path,
     *,
-    sample_rate: int,
-    channels: int,
     crossfade_seconds: float,
-) -> tuple[np.ndarray, list[float]]:
-    """Equal-power crossfade the tracks into one buffer; return (mix, start_times)."""
-    n = int(crossfade_seconds * sample_rate)
-    arrays = [dsp.load_audio_file(p, sample_rate, channels) for p in paths]
-    arrays = [a for a in arrays if len(a)]
-    if not arrays:
+) -> tuple[float, list[float], int, int]:
+    """Stream a crossfaded FLAC through ffmpeg without loading the album into RAM."""
+    if not paths:
         raise RuntimeError("No audio to combine.")
+    source_paths = [Path(path) for path in paths]
+    missing = next((path for path in source_paths if not path.is_file()), None)
+    if missing:
+        raise RuntimeError(f"audio not found: {missing}")
 
-    mix = arrays[0]
+    source_info = [dsp.audio_file_info(str(path)) for path in source_paths]
+    durations = [float(info["duration_seconds"]) for info in source_info]
+    positive_durations = [duration for duration in durations if duration > 0]
+    if len(positive_durations) != len(durations):
+        raise RuntimeError("Could not determine every track duration.")
+    fade = max(0.0, float(crossfade_seconds))
+    if len(paths) > 1:
+        fade = min(fade, min(positive_durations) / 2.0)
+
     starts = [0.0]
-    for track in arrays[1:]:
-        starts.append(max(len(mix) - n, 0) / sample_rate)
-        mix = dsp.equal_power_crossfade(mix, track, n)
-    return mix, starts
+    elapsed = durations[0]
+    for duration in durations[1:]:
+        starts.append(max(0.0, elapsed - fade))
+        elapsed += duration - fade
+
+    sample_rate = min(int(info["sample_rate"]) for info in source_info)
+    channels = min(int(info["channels"]) for info in source_info)
+    layouts = {1: "mono", 2: "stereo"}
+    if channels not in layouts:
+        raise RuntimeError(f"Unsupported source channel count: {channels}")
+    layout = layouts[channels]
+    chains = [
+        f"[{index}:a]aresample={sample_rate},"
+        f"aformat=sample_fmts=fltp:channel_layouts={layout}[a{index}]"
+        for index in range(len(paths))
+    ]
+    current = "[a0]"
+    if len(paths) == 1:
+        chains.append(f"{current}anull[mix]")
+    else:
+        for index in range(1, len(paths)):
+            output = "[mix]" if index == len(paths) - 1 else f"[x{index}]"
+            chains.append(f"{current}[a{index}]acrossfade=d={fade:.6f}:c1=qsin:c2=qsin{output}")
+            current = output
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    inputs = [argument for path in source_paths for argument in ("-i", str(path))]
+    result = _run(
+        [
+            FFMPEG,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            *inputs,
+            "-filter_complex",
+            ";".join(chains),
+            "-map",
+            "[mix]",
+            "-c:a",
+            "flac",
+            "-ar",
+            str(sample_rate),
+            "-ac",
+            str(channels),
+            str(output_path),
+        ],
+        capture=True,
+    )
+    _check(result, "crossfading tracks")
+    return elapsed, starts, sample_rate, channels
 
 
 def _cue_timestamp(seconds: float) -> str:
@@ -90,72 +150,41 @@ def find_font(explicit: str | None = None) -> str | None:
     return next((f for f in _FONT_CANDIDATES if Path(f).is_file()), None)
 
 
-def probe_duration(path: Path) -> float | None:
+def probe_audio_stream(path: Path) -> dict[str, int | float]:
     proc = _run(
         [
             FFPROBE,
             "-v",
             "error",
+            "-select_streams",
+            "a:0",
             "-show_entries",
-            "format=duration",
+            "stream=sample_rate,channels,bit_rate:format=duration,bit_rate",
             "-of",
-            "default=nw=1:nk=1",
+            "json",
             str(path),
         ],
         capture=True,
     )
     try:
-        return float((proc.stdout or "").strip())
-    except ValueError:
-        return None
-
-
-def _finite(value: object) -> bool:
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        return False
-    return f == f and abs(f) != float("inf")
-
-
-def measure_loudness(audio: Path, i: float, tp: float, lra: float) -> dict | None:
-    proc = _run(
-        [
-            FFMPEG,
-            "-hide_banner",
-            "-nostats",
-            "-i",
-            str(audio),
-            "-af",
-            f"loudnorm=I={i}:TP={tp}:LRA={lra}:print_format=json",
-            "-f",
-            "null",
-            "-",
-        ],
-        capture=True,
-    )
-    text = proc.stderr or ""
-    start, end = text.rfind("{"), text.rfind("}")
-    if start == -1 or end <= start:
-        return None
-    try:
-        data = json.loads(text[start : end + 1])
-    except ValueError:
-        return None
-    keys = ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")
-    return data if all(_finite(data.get(k)) for k in keys) else None
-
-
-def loudnorm_filter(audio: Path, i: float = -14.0, tp: float = -1.0, lra: float = 11.0) -> str:
-    base = f"loudnorm=I={i}:TP={tp}:LRA={lra}"
-    measured = measure_loudness(audio, i, tp, lra)
-    if measured is None:
-        return base
-    return (
-        f"{base}:measured_I={measured['input_i']}:measured_TP={measured['input_tp']}"
-        f":measured_LRA={measured['input_lra']}:measured_thresh={measured['input_thresh']}"
-        f":offset={measured['target_offset']}:linear=true"
-    )
+        payload = json.loads(proc.stdout or "{}")
+        stream = payload["streams"][0]
+        format_info = payload.get("format") or {}
+        sample_rate = int(stream["sample_rate"])
+        channels = int(stream["channels"])
+        duration = float(format_info["duration"])
+        raw_bit_rate = stream.get("bit_rate") or format_info.get("bit_rate")
+        bit_rate = int(raw_bit_rate) if raw_bit_rate not in (None, "N/A") else 0
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"Could not inspect source audio: {path}") from exc
+    if bit_rate <= 0 and duration > 0:
+        bit_rate = round(path.stat().st_size * 8 / duration)
+    return {
+        "sample_rate": sample_rate,
+        "channels": channels,
+        "duration": duration,
+        "bit_rate": bit_rate,
+    }
 
 
 def visualizer_core(style: str, width: int, height: int, fps: int) -> str:
@@ -189,6 +218,7 @@ def build_video_filter(
     zoom: bool,
     title_file: str | None,
     font: str | None,
+    audio_label: str = "[0:a]",
 ) -> tuple[str, str]:
     if style not in VISUALIZERS:
         raise ValueError(f"unknown visualizer: {style}")
@@ -206,14 +236,14 @@ def build_video_filter(
         if viz_used:
             band = max(2, int(height * 0.30) // 2 * 2)
             chains.append(
-                f"[0:a]{_viz_sized(style, width, band, fps, ',format=rgba,colorchannelmixer=aa=0.9')}[viz]"
+                f"{audio_label}{_viz_sized(style, width, band, fps, ',format=rgba,colorchannelmixer=aa=0.9')}[viz]"
             )
             chains.append(f"[bg][viz]overlay=0:{height - band}:shortest=1,format=yuv420p[v0]")
         else:
             chains.append("[bg]format=yuv420p[v0]")
     elif viz_used:
         chains.append(
-            f"[0:a]{_viz_sized(style, width, height, fps)},vignette=PI/5,format=yuv420p[v0]"
+            f"{audio_label}{_viz_sized(style, width, height, fps)},vignette=PI/5,format=yuv420p[v0]"
         )
     else:
         chains.append(
@@ -266,6 +296,7 @@ def render_video(
     out_path: Path,
     *,
     visualizer: str = "cqt",
+    resolution: str = "1080p",
     title: str | None = None,
     background: str | None = None,
 ) -> None:
@@ -275,7 +306,10 @@ def render_video(
         raise RuntimeError(f"audio not found: {mix_path}")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    width, height, fps = 1920, 1080, 30
+    if resolution not in RESOLUTIONS:
+        raise ValueError(f"unknown resolution: {resolution}")
+    width, height = RESOLUTIONS[resolution]
+    fps = 30
     background_is_video = False
     if background:
         bg_path = Path(background)
@@ -298,6 +332,7 @@ def render_video(
             tf.close()
             title_file = tf.name
 
+    visualizer_used = visualizer != "none"
     graph, vlabel = build_video_filter(
         style=visualizer,
         width=width,
@@ -308,38 +343,53 @@ def render_video(
         zoom=False,
         title_file=title_file,
         font=font,
+        audio_label="[viz_audio]" if visualizer_used else "[0:a]",
     )
-    common_audio = ["-c:a", "aac", "-b:a", "384k", "-ar", "48000", "-ac", "2"]
-    audio_chain = f"{loudnorm_filter(mix_path)},aresample=48000"
+    audio_info = probe_audio_stream(mix_path)
+    source_sample_rate = int(audio_info["sample_rate"])
+    source_channels = int(audio_info["channels"])
+    source_bit_rate = int(audio_info["bit_rate"])
+    aac_sample_rates = {
+        7350,
+        8000,
+        11025,
+        12000,
+        16000,
+        22050,
+        24000,
+        32000,
+        44100,
+        48000,
+        64000,
+        88200,
+        96000,
+    }
+    if source_sample_rate not in aac_sample_rates:
+        raise RuntimeError(f"AAC cannot preserve the source sample rate of {source_sample_rate} Hz")
+    aac_bit_rate = min(512_000, source_bit_rate)
+    common_audio = [
+        "-c:a",
+        "aac",
+        "-b:a",
+        str(aac_bit_rate),
+        "-ar",
+        str(source_sample_rate),
+        "-ac",
+        str(source_channels),
+        "-profile:a",
+        "aac_low",
+        "-aac_coder",
+        "twoloop",
+    ]
+    if visualizer_used:
+        graph = f"[0:a]asplit=2[viz_audio][audio];{graph}"
+    else:
+        graph = f"{graph};[0:a]anull[audio]"
 
-    workdir = Path(tempfile.mkdtemp(prefix="not-studio-video-"))
-    master = workdir / "master.flac"
-    silent_video = workdir / "video.mp4"
     try:
-        _check(
-            _run(
-                [
-                    FFMPEG,
-                    "-y",
-                    "-hide_banner",
-                    "-i",
-                    str(mix_path),
-                    "-af",
-                    audio_chain,
-                    "-c:a",
-                    "flac",
-                    "-ar",
-                    "48000",
-                    str(master),
-                ],
-                capture=True,
-            ),
-            "mastering audio",
-        )
-
-        duration = probe_duration(master)
+        duration = float(audio_info["duration"])
         duration_args = ["-t", f"{duration:.3f}"] if duration else []
-        inputs = ["-i", str(master)]
+        inputs = ["-i", str(mix_path)]
         if background:
             loop = ["-stream_loop", "-1"] if background_is_video else ["-loop", "1"]
             inputs += [*loop, "-i", str(background)]
@@ -349,19 +399,22 @@ def render_video(
                     FFMPEG,
                     "-y",
                     "-hide_banner",
+                    "-loglevel",
+                    "error",
                     *inputs,
                     "-filter_complex",
                     graph,
                     "-map",
                     vlabel,
-                    "-an",
+                    "-map",
+                    "[audio]",
                     *duration_args,
                     "-c:v",
                     "libx264",
                     "-preset",
-                    "medium",
+                    "veryfast",
                     "-crf",
-                    "18",
+                    "20",
                     "-pix_fmt",
                     "yuv420p",
                     "-profile:v",
@@ -370,29 +423,6 @@ def render_video(
                     str(fps * 2),
                     "-bf",
                     "2",
-                    str(silent_video),
-                ],
-                capture=True,
-            ),
-            "rendering video",
-        )
-
-        _check(
-            _run(
-                [
-                    FFMPEG,
-                    "-y",
-                    "-hide_banner",
-                    "-i",
-                    str(silent_video),
-                    "-i",
-                    str(master),
-                    "-map",
-                    "0:v",
-                    "-map",
-                    "1:a",
-                    "-c:v",
-                    "copy",
                     *common_audio,
                     "-shortest",
                     "-movflags",
@@ -401,13 +431,12 @@ def render_video(
                 ],
                 capture=True,
             ),
-            "muxing",
+            "rendering video",
         )
 
         chapters = cue_to_chapters(mix_path.with_suffix(".cue"))
         if chapters:
             out_path.with_name("chapters.txt").write_text(chapters, encoding="utf-8")
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
         if title_file:
             Path(title_file).unlink(missing_ok=True)

@@ -153,6 +153,7 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
                 size_bytes=path.stat().st_size if path.exists() else 0,
                 meta={
                     "prompt": spec.get("prompt", ""),
+                    "genre": spec.get("genre", ""),
                     "provider": provider,
                     "album": album,
                     "mood": spec.get("mood") or album.get("mood"),
@@ -232,17 +233,16 @@ async def make_video_job(job_id: str) -> dict[str, Any]:
         return {"error": "no tracks"}
 
     try:
-        out_path, duration = await run_in_process(
+        out_path, duration, sample_rate, channels = await run_in_process(
             _render_video,
             settings.audio_dir,
             settings.videos_dir,
             job_id,
             [it.path for it in items],
             [it.title for it in items],
-            int(settings.sample_rate),
-            int(settings.channels),
             float(params.get("crossfade_seconds", 6.0)),
             str(params.get("visualizer", "cqt")),
+            str(params.get("resolution", "1080p")),
             params.get("title"),
         )
     except asyncio.CancelledError:
@@ -262,11 +262,15 @@ async def make_video_job(job_id: str) -> dict[str, Any]:
             title=params.get("title") or f"Mix of {len(items)} tracks",
             job_id=job_id,
             path=str(out_path),
-            sample_rate=settings.sample_rate,
-            channels=settings.channels,
+            sample_rate=sample_rate,
+            channels=channels,
             duration_seconds=duration,
             size_bytes=out_path.stat().st_size if out_path.exists() else 0,
-            meta={"source_item_ids": item_ids, "visualizer": params.get("visualizer", "cqt")},
+            meta={
+                "source_item_ids": item_ids,
+                "visualizer": params.get("visualizer", "cqt"),
+                "resolution": params.get("resolution", "1080p"),
+            },
         )
         session.add(item)
         await session.commit()
@@ -290,20 +294,22 @@ def _render_video(
     job_id: str,
     paths: list[str],
     titles: list[str],
-    sample_rate: int,
-    channels: int,
     crossfade_seconds: float,
     visualizer: str,
+    resolution: str,
     title: str | None,
-) -> tuple[Path, float]:
+) -> tuple[Path, float, int, int]:
     from .. import video_export
 
-    mix, starts = video_export.crossfade_tracks(
-        paths, sample_rate=sample_rate, channels=channels, crossfade_seconds=crossfade_seconds
-    )
     mix_path = audio_dir / f"mix-{job_id}.flac"
-    dsp.write_audio_file(str(mix_path), mix, sample_rate)
+    duration, starts, sample_rate, channels = video_export.mix_tracks_to_file(
+        paths,
+        mix_path,
+        crossfade_seconds=crossfade_seconds,
+    )
     video_export.write_cue(mix_path.with_suffix(".cue"), mix_path.name, titles, starts)
     out_path = videos_dir / f"video-{job_id}.mp4"
-    video_export.render_video(mix_path, out_path, visualizer=visualizer, title=title)
-    return out_path, len(mix) / sample_rate
+    video_export.render_video(
+        mix_path, out_path, visualizer=visualizer, resolution=resolution, title=title
+    )
+    return out_path, duration, sample_rate, channels

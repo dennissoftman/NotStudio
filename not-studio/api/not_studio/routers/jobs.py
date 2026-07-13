@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Query, Response, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -33,8 +35,19 @@ async def jobs_websocket(websocket: WebSocket) -> None:
             if snapshot != previous:
                 await websocket.send_json({"type": "jobs", "jobs": snapshot})
                 previous = snapshot
-            version = await wait_for_jobs_changed(version)
-    except WebSocketDisconnect:
+            changed = asyncio.create_task(wait_for_jobs_changed(version))
+            disconnected = asyncio.create_task(websocket.receive())
+            done, pending = await asyncio.wait(
+                {changed, disconnected}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            if disconnected in done:
+                return
+            version = changed.result()
+    except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
         return
 
 

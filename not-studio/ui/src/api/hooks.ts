@@ -4,7 +4,7 @@ import { api, jobsWebSocketUrl, type Job, type TrackVerdict } from "./client";
 
 const keys = {
   health: ["health"],
-  promptProviders: ["promptProviders"],
+  promptKit: ["promptKit"],
   jobs: ["jobs"],
   history: ["history"],
   tracks: ["tracks"],
@@ -15,8 +15,8 @@ export function useHealth() {
   return useQuery({ queryKey: keys.health, queryFn: api.health });
 }
 
-export function usePromptProviders() {
-  return useQuery({ queryKey: keys.promptProviders, queryFn: api.promptProviders });
+export function usePromptKit() {
+  return useQuery({ queryKey: keys.promptKit, queryFn: api.promptKit });
 }
 
 export function useJobs() {
@@ -130,10 +130,6 @@ export function useGenerateAlbum() {
     mutationFn: (data: unknown) => api.generateAlbum(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.jobs }),
   });
-}
-
-export function useGeneratePromptIdeas() {
-  return useMutation({ mutationFn: (data: unknown) => api.generatePromptIdeas(data) });
 }
 
 export function useReviewTrack() {

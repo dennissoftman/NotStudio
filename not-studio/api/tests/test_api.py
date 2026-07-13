@@ -9,16 +9,13 @@ from not_studio.main import app
 from not_studio.models import HistoryItem, Job
 
 
-def test_health_reports_music_and_prompt_providers():
+def test_health_reports_music_providers():
     with TestClient(app) as client:
         health = client.get("/api/health").json()
         assert health["status"] == "ok"
         assert health["jobs"] == "local-background"
         providers = {p["provider"]: p for p in health["providers"]}
         assert set(providers) == {"stable_audio_local", "stable_audio_runpod"}
-        prompt_providers = {p["provider"]: p for p in health["prompt_providers"]}
-        assert "lm_studio" in prompt_providers
-        assert "openai" in prompt_providers
 
 
 def test_jobs_websocket_sends_initial_snapshot():
@@ -133,3 +130,76 @@ def test_failed_job_can_be_retried_with_the_same_params(monkeypatch):
     assert body["status"] == "queued"
     assert body["params"]["prompts"][0]["duration"] == 180
     assert started == [body["id"]]
+
+
+def test_prompt_kit_exposes_genre_schema_and_review_history():
+    async def create_reviewed_tracks() -> None:
+        async with session_scope() as session:
+            session.add(
+                HistoryItem(
+                    kind="track",
+                    title="Keep This",
+                    path="/tmp/liked.flac",
+                    meta={
+                        "genre": "deep house",
+                        "prompt": "warm bass and restrained percussion",
+                        "review": {"verdict": "liked", "note": "good restraint"},
+                    },
+                )
+            )
+            session.add(
+                HistoryItem(
+                    kind="track",
+                    title="Keep This Too",
+                    path="/tmp/liked-too.flac",
+                    meta={
+                        "genre": "  DEEP   HOUSE ",
+                        "prompt": "subtle percussion and warm low end",
+                        "review": {"verdict": "liked"},
+                    },
+                )
+            )
+            session.add(
+                HistoryItem(
+                    kind="track",
+                    title="Not This",
+                    path="/tmp/disliked.flac",
+                    meta={
+                        "genre": "festival EDM",
+                        "prompt": "huge drops and bright supersaws",
+                        "review": {"verdict": "disliked"},
+                    },
+                )
+            )
+            await session.commit()
+
+    with TestClient(app) as client:
+        asyncio.run(create_reviewed_tracks())
+        response = client.get("/api/studio/prompt-kit")
+
+    assert response.status_code == 200
+    body = response.json()
+    required = body["output_schema"]["items"]["required"]
+    assert "genre" in required
+    assert body["taste_profile"]["liked_genres"] == ["deep house"]
+    assert body["taste_profile"]["disliked_genres"] == ["festival edm"]
+    assert "liked_count" not in body["taste_profile"]
+    assert "disliked_count" not in body["taste_profile"]
+    assert any(item["genre"] == "deep house" for item in body["taste_profile"]["liked_examples"])
+
+
+def test_video_request_persists_selected_resolution(monkeypatch):
+    monkeypatch.setattr("not_studio.tasks.submit.start_job_task", lambda job_id, runner: None)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/studio/videos",
+            json={
+                "item_ids": ["track-id"],
+                "visualizer": "waves",
+                "resolution": "2160p",
+                "crossfade_seconds": 4,
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["params"]["resolution"] == "2160p"

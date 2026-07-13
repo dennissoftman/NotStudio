@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 MusicProvider = Literal["stable_audio_local", "stable_audio_runpod"]
-PromptProvider = Literal["lm_studio", "gemini", "openai", "anthropic"]
+VideoResolution = Literal["2160p", "1440p", "1080p", "720p"]
 
 
 class MusicProviderInfo(BaseModel):
@@ -20,9 +20,10 @@ class MusicProviderInfo(BaseModel):
 
 class PromptSpec(BaseModel):
     model_config = ConfigDict(extra="allow")
-    title: str
-    prompt: str
-    duration: float = 180.0
+    title: str = Field(min_length=1, max_length=160)
+    genre: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=1, max_length=4000)
+    duration: float = Field(ge=15.0, le=900.0)
 
 
 class GenerateAlbumRequest(BaseModel):
@@ -51,29 +52,47 @@ class MakeVideoRequest(BaseModel):
     item_ids: list[str]
     title: str | None = None
     visualizer: Literal["cqt", "spectrum", "waves", "none"] = "cqt"
+    resolution: VideoResolution = "1080p"
     crossfade_seconds: float = 6.0
 
 
-class PromptProviderInfo(BaseModel):
-    provider: PromptProvider
-    available: bool
-    detail: str = ""
-    default_model: str = ""
+class TasteExample(BaseModel):
+    title: str
+    genre: str
+    prompt: str
+    note: str | None = None
+
+    @field_validator("genre")
+    @classmethod
+    def normalize_genre(cls, value: str) -> str:
+        return " ".join(value.lower().split())
 
 
-class GeneratePromptIdeasRequest(BaseModel):
-    provider: PromptProvider
-    mood: str = Field(min_length=1, max_length=80)
-    styles: list[str] = Field(default_factory=list, max_length=8)
-    track_count: int = Field(default=4, ge=1, le=20)
-    duration: float = Field(default=180.0, ge=15.0, le=900.0)
-    duration_variation_percent: float = Field(default=0.0, ge=0.0, le=50.0)
-    album_title: str | None = Field(default=None, max_length=120)
-    taste_notes: str = Field(default="", max_length=1000)
-    model: str | None = None
+class TasteProfile(BaseModel):
+    liked_genres: set[str]
+    disliked_genres: set[str]
+    liked_examples: list[TasteExample]
+    disliked_examples: list[TasteExample]
+
+    @field_validator("liked_genres", "disliked_genres", mode="before")
+    @classmethod
+    def normalize_genres(cls, value: object) -> set[str]:
+        if not isinstance(value, (list, set, tuple)):
+            raise ValueError("genres must be a collection")
+        return {
+            normalized
+            for genre in value
+            if (normalized := " ".join(str(genre).lower().split()))
+        }
+
+    @field_serializer("liked_genres", "disliked_genres")
+    def serialize_genres(self, value: set[str]) -> list[str]:
+        return sorted(value)
 
 
-class GeneratePromptIdeasResponse(BaseModel):
-    prompts: list[PromptSpec]
-    provider: PromptProvider
-    model: str
+class PromptKitResponse(BaseModel):
+    task: str
+    requirements: list[str]
+    output_schema: dict[str, Any]
+    example: list[PromptSpec]
+    taste_profile: TasteProfile

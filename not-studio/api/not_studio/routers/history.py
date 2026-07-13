@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from ..db import session_scope
 from ..deps import get_or_404, get_session
 from ..models import HistoryItem
 
@@ -37,9 +38,13 @@ async def get_item(item_id: str, session: AsyncSession = Depends(get_session)) -
 
 
 @router.get("/{item_id}/audio")
-async def get_audio(item_id: str, session: AsyncSession = Depends(get_session)) -> FileResponse:
-    item = await get_or_404(session, HistoryItem, item_id)
-    path = Path(item.path)
+async def get_audio(item_id: str) -> FileResponse:
+    # Release the database connection before Starlette starts streaming the file.
+    # A library page may request metadata for many audio elements concurrently.
+    async with session_scope() as session:
+        item = await get_or_404(session, HistoryItem, item_id)
+        item_path = item.path
+    path = Path(item_path)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Audio file missing")
     media = _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")

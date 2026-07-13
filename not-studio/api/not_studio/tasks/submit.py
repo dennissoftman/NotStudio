@@ -36,6 +36,7 @@ async def submit_make_video(
     item_ids: list[str],
     title: str | None = None,
     visualizer: str = "cqt",
+    resolution: str = "1080p",
     crossfade_seconds: float = 6.0,
 ) -> Job:
     job = Job(
@@ -45,6 +46,7 @@ async def submit_make_video(
             "item_ids": item_ids,
             "title": title,
             "visualizer": visualizer,
+            "resolution": resolution,
             "crossfade_seconds": crossfade_seconds,
         },
         enqueued_at=utcnow(),
