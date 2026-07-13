@@ -18,9 +18,11 @@ uv run dev
 
 Jobs run as API background tasks and are visible through `/api/jobs`.
 The live job snapshot stream is available at `/api/jobs/ws`.
-With the local provider selected, startup warms the Stable Audio medium model
-inside the persistent generation worker before the API becomes healthy. The
-health response includes the model readiness state and selected device.
+With the local provider selected, startup begins warming the Stable Audio
+Medium model asynchronously inside the persistent generation worker. The API
+is available during warmup; `/api/health` exposes the model state, selected
+device when ready, and any preload error. A generation submitted while the
+model is loading waits for that worker and then reuses the loaded model.
 Video validation, audio concatenation, and YouTube-compatible encoding use the
 `python-ffmpeg` API. Its progress events update render-job percentages and
 messages; application code does not invoke FFmpeg through `subprocess`.

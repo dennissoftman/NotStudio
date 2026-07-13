@@ -98,13 +98,15 @@ homegrown browser media player.
 
 ## Audio Generation
 
-`Stable Audio / Local` runs directly in a cancellable API worker process using
-the checked-out `stable-audio-3` package. When it is the default provider, API
-startup preloads the medium model into that same persistent worker and does not
-report healthy until the model is ready. The sidebar shows `medium ready`, so
-the first generation job does not pay the model-loading cost. Set
-`NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP=false` only when a cold local worker
-is intentional.
+`Stable Audio / Local` runs directly in a cancellable, persistent API worker
+process using the checked-out `stable-audio-3` package. When it is the default
+provider, the API starts immediately and loads the Medium model asynchronously
+in that worker. `/api/health` reports `status: ok` throughout and exposes the
+model state as `loading`, `ready`, or `failed`; the sidebar mirrors that state.
+A generation submitted during warmup waits for the same worker, then reuses the
+loaded model. A preload failure leaves the API available and is reported by the
+health endpoint. Set `NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP=false` only when
+a cold local worker is intentional.
 
 `Stable Audio / RunPod` sends the entire batch to one RunPod Serverless
 `/runsync` request. The worker writes FLAC files to an attached network volume;
