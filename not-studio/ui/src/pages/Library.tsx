@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { api, type HistoryItem, type TrackVerdict, type VideoResolution } from "../api/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, type HistoryItem, type TrackVerdict } from "../api/client";
 import {
   useDeleteHistory,
   useCancelJob,
@@ -19,6 +19,7 @@ import {
   Progress,
   SectionTitle,
   StatusBadge,
+  VideoPlayer,
   cx,
   fmtDuration,
 } from "../components/ui";
@@ -72,10 +73,9 @@ export default function Library() {
     [tracks],
   );
   const [selected, setSelected] = useState<string[]>([]);
-  const [title, setTitle] = useState("");
-  const [visualizer, setVisualizer] = useState("cqt");
-  const [resolution, setResolution] = useState<VideoResolution>("1080p");
-  const [crossfade, setCrossfade] = useState(6);
+  const [background, setBackground] = useState<File | null>(null);
+  const [uploadingBackground, setUploadingBackground] = useState(false);
+  const backgroundInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [sort, setSort] = useState<TrackSort>("date-desc");
 
@@ -128,25 +128,31 @@ export default function Library() {
       setError("Like and select at least one track");
       return;
     }
+    if (!background) {
+      setError("Choose a video for the mix");
+      return;
+    }
     try {
+      setUploadingBackground(true);
+      const uploadedBackground = await api.uploadVideoBackground(background);
       await makeVideo.mutateAsync({
         item_ids: selected,
-        title: title || null,
-        visualizer,
-        resolution,
-        crossfade_seconds: crossfade,
+        background_id: uploadedBackground.id,
       });
       setSelected([]);
-      setTitle("");
+      setBackground(null);
+      if (backgroundInput.current) backgroundInput.current.value = "";
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setUploadingBackground(false);
     }
   }
 
   return (
     <div className="space-y-10">
       <div>
-        <SectionTitle title="Review tracks" subtitle="Listen to each candidate, keep the strong ones, then make a mix." />
+        <SectionTitle title="Review tracks" subtitle="Make decisions: keep the right tracks, order them, and choose the video." />
 
         <div className="mb-3 grid gap-2 sm:grid-cols-3">
           <Card className="!py-3">
@@ -185,7 +191,6 @@ export default function Library() {
                     <AudioPlayer
                       src={api.audioUrl(track.id)}
                       label={track.title}
-                      durationSeconds={track.duration_seconds}
                     />
                     <button
                       className={cx("review-button", verdict === "liked" && "review-button-liked")}
@@ -235,55 +240,48 @@ export default function Library() {
 
         {(tracks?.length ?? 0) > 0 && (
           <Card className="mt-3">
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="grow">
-                <span className="label">Mix title</span>
-                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
-              </label>
+            <div className="mb-4 rounded-lg border border-ink-700 bg-ink-950/60 p-3">
               <label>
-                <span className="label">Visualizer</span>
-                <select
-                  className="input w-auto"
-                  value={visualizer}
-                  onChange={(e) => setVisualizer(e.target.value)}
-                >
-                  <option value="cqt">cqt</option>
-                  <option value="spectrum">spectrum</option>
-                  <option value="waves">waves</option>
-                  <option value="none">none</option>
-                </select>
-              </label>
-              <label>
-                <span className="label">Resolution</span>
-                <select
-                  className="input w-auto"
-                  value={resolution}
-                  onChange={(e) => setResolution(e.target.value as VideoResolution)}
-                >
-                  <option value="2160p">2160p / 4K</option>
-                  <option value="1440p">1440p</option>
-                  <option value="1080p">1080p</option>
-                  <option value="720p">720p</option>
-                </select>
-              </label>
-              <label>
-                <span className="label">Crossfade seconds</span>
+                <span className="label">Video input</span>
                 <input
-                  type="number"
-                  className="input w-28"
-                  value={crossfade}
-                  onChange={(e) => setCrossfade(+e.target.value)}
+                  ref={backgroundInput}
+                  type="file"
+                  className="input file:mr-3 file:rounded-md file:border-0 file:bg-ink-700 file:px-3 file:py-1 file:text-sm file:text-slate-100"
+                  onChange={(event) => setBackground(event.target.files?.[0] ?? null)}
                 />
               </label>
+              <p className="mt-2 text-xs text-slate-500">
+                Any format your FFmpeg installation can read (MP4, MKV, AVI, MOV, WebM, and more).
+                The source video is preserved visually, muted, looped to the complete track sequence, and automatically encoded as a YouTube-ready H.264/AAC MP4.
+              </p>
+              {background && <div className="mt-2 flex items-center gap-2 text-xs text-slate-300">
+                <Badge tone="violet">Looping backdrop</Badge>
+                <span className="truncate">{background.name}</span>
+                <button
+                  className="text-slate-500 hover:text-slate-200"
+                  type="button"
+                  onClick={() => {
+                    setBackground(null);
+                    if (backgroundInput.current) backgroundInput.current.value = "";
+                  }}
+                >
+                  Remove
+                </button>
+              </div>}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-400">
+                {selected.length} selected track{selected.length === 1 ? "" : "s"}, played in selection order.
+              </p>
               <button
                 className="btn-primary"
-                disabled={selected.length === 0 || makeVideo.isPending}
+                disabled={!background || selected.length === 0 || makeVideo.isPending || uploadingBackground}
                 onClick={combine}
               >
-                <SparklesIcon className="h-4 w-4" /> Make mix ({selected.length})
+                <SparklesIcon className="h-4 w-4" /> {uploadingBackground ? "Uploading backdrop…" : `Make mix (${selected.length})`}
               </button>
-              {error && <span className="text-sm text-red-400">{error}</span>}
             </div>
+            {error && <div className="mt-2 text-sm text-red-400">{error}</div>}
           </Card>
         )}
 
@@ -346,7 +344,10 @@ export default function Library() {
                   {fmtDuration(video.duration_seconds)}
                 </span>
               </div>
-              <video className="w-full rounded-md bg-black" controls preload="none" src={api.audioUrl(video.id)} />
+              <VideoPlayer
+                src={api.audioUrl(video.id)}
+                label={video.title}
+              />
               <div className="mt-2 flex gap-2">
                 <a className="btn-ghost !text-xs" href={api.audioUrl(video.id)} download>
                   <DownloadIcon className="h-4 w-4" /> Download MP4

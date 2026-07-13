@@ -7,7 +7,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 MusicProvider = Literal["stable_audio_local", "stable_audio_runpod"]
-VideoResolution = Literal["2160p", "1440p", "1080p", "720p"]
 
 
 class MusicProviderInfo(BaseModel):
@@ -49,11 +48,15 @@ class TrackReviewRequest(BaseModel):
 
 
 class MakeVideoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     item_ids: list[str]
-    title: str | None = None
-    visualizer: Literal["cqt", "spectrum", "waves", "none"] = "cqt"
-    resolution: VideoResolution = "1080p"
-    crossfade_seconds: float = 6.0
+    background_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class VideoBackgroundUpload(BaseModel):
+    id: str
+    filename: str
+    size_bytes: int
 
 
 class TasteExample(BaseModel):
@@ -80,9 +83,7 @@ class TasteProfile(BaseModel):
         if not isinstance(value, (list, set, tuple)):
             raise ValueError("genres must be a collection")
         return {
-            normalized
-            for genre in value
-            if (normalized := " ".join(str(genre).lower().split()))
+            normalized for genre in value if (normalized := " ".join(str(genre).lower().split()))
         }
 
     @field_serializer("liked_genres", "disliked_genres")

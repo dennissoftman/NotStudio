@@ -34,20 +34,14 @@ async def submit_make_video(
     session: AsyncSession,
     *,
     item_ids: list[str],
-    title: str | None = None,
-    visualizer: str = "cqt",
-    resolution: str = "1080p",
-    crossfade_seconds: float = 6.0,
+    background_id: str,
 ) -> Job:
     job = Job(
         type="make_video",
         status="queued",
         params={
             "item_ids": item_ids,
-            "title": title,
-            "visualizer": visualizer,
-            "resolution": resolution,
-            "crossfade_seconds": crossfade_seconds,
+            "background_id": background_id,
         },
         enqueued_at=utcnow(),
     )

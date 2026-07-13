@@ -14,14 +14,6 @@ const shared = {
   "aria-hidden": true,
 };
 
-export function PlayIcon(props: IconProps) {
-  return <svg {...shared} {...props}><path d="m8 5 11 7-11 7V5Z" fill="currentColor" stroke="none" /></svg>;
-}
-
-export function PauseIcon(props: IconProps) {
-  return <svg {...shared} {...props}><path d="M9 5v14M15 5v14" strokeWidth="2.4" /></svg>;
-}
-
 export function ThumbsUpIcon(props: IconProps) {
   return <svg {...shared} {...props}><path d="M7 10v11H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3Zm0 11h9.2a2 2 0 0 0 1.9-1.4l2.2-7A2 2 0 0 0 18.4 10H14l.7-3.5A2.9 2.9 0 0 0 12 3l-5 7v11Z" /></svg>;
 }

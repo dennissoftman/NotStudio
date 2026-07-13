@@ -57,19 +57,13 @@
   .choice-chip-active {
     @apply border-accent bg-accent/20 text-accent-soft;
   }
-  .audio-range {
-    @apply h-1.5 cursor-pointer appearance-none rounded-full bg-ink-600 accent-purple-500;
+  .media-audio-player {
+    --media-brand: theme(colors.purple.400);
+    @apply min-w-64 max-w-full overflow-hidden rounded-xl border border-ink-600 bg-ink-950 text-slate-100 shadow-inner;
   }
-  .audio-range::-webkit-slider-thumb {
-    @apply h-3.5 w-3.5 appearance-none rounded-full border-2 border-accent bg-white shadow-lg shadow-accent/30;
-  }
-  .audio-player {
-    @apply flex items-center gap-2 rounded-xl border border-ink-600/80 bg-ink-950/80 px-2 py-1.5 shadow-inner;
-  }
-  .audio-play-button {
-    @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br
-      from-accent to-purple-700 text-white shadow-md shadow-accent/20 transition-transform
-      hover:scale-105 active:scale-95;
+  .media-video-player {
+    --media-brand: theme(colors.purple.400);
+    @apply aspect-video w-full overflow-hidden rounded-xl border border-ink-600 bg-black text-slate-100 shadow-2xl shadow-black/30;
   }
   .icon-button {
     @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ink-600

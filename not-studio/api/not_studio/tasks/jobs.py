@@ -228,22 +228,29 @@ async def make_video_job(job_id: str) -> dict[str, Any]:
         item_ids = list(params.get("item_ids") or [])
         items = [it for it in [await session.get(HistoryItem, i) for i in item_ids] if it]
 
+    background_id = str(params.get("background_id") or "")
+    background_path = settings.video_backgrounds_dir / background_id
+    if not background_id or not background_path.is_file():
+        await update_job(
+            job_id,
+            status="failed",
+            error="uploaded background is missing",
+            finished_at=utcnow(),
+        )
+        return {"error": "uploaded background is missing"}
+
     if not items:
         await update_job(job_id, status="failed", error="no tracks selected", finished_at=utcnow())
         return {"error": "no tracks"}
 
     try:
-        out_path, duration, sample_rate, channels = await run_in_process(
-            _render_video,
-            settings.audio_dir,
-            settings.videos_dir,
-            job_id,
-            [it.path for it in items],
-            [it.title for it in items],
-            float(params.get("crossfade_seconds", 6.0)),
-            str(params.get("visualizer", "cqt")),
-            str(params.get("resolution", "1080p")),
-            params.get("title"),
+        out_path, duration, sample_rate, channels = await _render_video(
+            audio_dir=settings.audio_dir,
+            videos_dir=settings.videos_dir,
+            job_id=job_id,
+            paths=[it.path for it in items],
+            titles=[it.title for it in items],
+            background=str(background_path),
         )
     except asyncio.CancelledError:
         await update_job(job_id, status="cancelled", message="Cancelled", finished_at=utcnow())
@@ -259,7 +266,7 @@ async def make_video_job(job_id: str) -> dict[str, Any]:
     async with session_scope() as session:
         item = HistoryItem(
             kind="video",
-            title=params.get("title") or f"Mix of {len(items)} tracks",
+            title=f"Mix of {len(items)} track{'s' if len(items) != 1 else ''}",
             job_id=job_id,
             path=str(out_path),
             sample_rate=sample_rate,
@@ -268,8 +275,10 @@ async def make_video_job(job_id: str) -> dict[str, Any]:
             size_bytes=out_path.stat().st_size if out_path.exists() else 0,
             meta={
                 "source_item_ids": item_ids,
-                "visualizer": params.get("visualizer", "cqt"),
-                "resolution": params.get("resolution", "1080p"),
+                "background_id": background_id,
+                "background_looped": True,
+                "video_codec": "h264",
+                "pixel_format": "yuv420p",
             },
         )
         session.add(item)
@@ -288,28 +297,52 @@ async def make_video_job(job_id: str) -> dict[str, Any]:
     return {"video_id": video_id}
 
 
-def _render_video(
+async def _render_video(
     audio_dir: Path,
     videos_dir: Path,
     job_id: str,
     paths: list[str],
     titles: list[str],
-    crossfade_seconds: float,
-    visualizer: str,
-    resolution: str,
-    title: str | None,
+    background: str,
 ) -> tuple[Path, float, int, int]:
     from .. import video_export
 
     mix_path = audio_dir / f"mix-{job_id}.flac"
-    duration, starts, sample_rate, channels = video_export.mix_tracks_to_file(
-        paths,
-        mix_path,
-        crossfade_seconds=crossfade_seconds,
-    )
-    video_export.write_cue(mix_path.with_suffix(".cue"), mix_path.name, titles, starts)
-    out_path = videos_dir / f"video-{job_id}.mp4"
-    video_export.render_video(
-        mix_path, out_path, visualizer=visualizer, resolution=resolution, title=title
-    )
-    return out_path, duration, sample_rate, channels
+    progress_queue: asyncio.Queue[tuple[float, str] | None] = asyncio.Queue(maxsize=1)
+
+    def queue_progress(progress: float, message: str) -> None:
+        if progress_queue.full():
+            progress_queue.get_nowait()
+        progress_queue.put_nowait((progress, message))
+
+    async def publish_progress() -> None:
+        while update := await progress_queue.get():
+            progress, message = update
+            await update_job(job_id, progress=progress, message=message)
+
+    publisher = asyncio.create_task(publish_progress())
+
+    def mix_progress(progress: float, message: str) -> None:
+        queue_progress(0.15 + progress * 0.15, message)
+
+    def render_progress(progress: float, message: str) -> None:
+        queue_progress(0.30 + progress * 0.68, message)
+
+    try:
+        duration, starts, sample_rate, channels = await video_export.mix_tracks_to_file(
+            paths,
+            mix_path,
+            on_progress=mix_progress,
+        )
+        video_export.write_cue(mix_path.with_suffix(".cue"), mix_path.name, titles, starts)
+        out_path = videos_dir / f"video-{job_id}.mp4"
+        await video_export.render_video(
+            mix_path,
+            out_path,
+            background=background,
+            on_progress=render_progress,
+        )
+        return out_path, duration, sample_rate, channels
+    finally:
+        await progress_queue.put(None)
+        await publisher
