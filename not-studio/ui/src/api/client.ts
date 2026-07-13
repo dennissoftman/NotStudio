@@ -73,10 +73,11 @@ export interface Health {
   status: string;
   jobs: string;
   model: {
-    status: "loading" | "ready" | "disabled" | "skipped";
+    status: "loading" | "ready" | "failed" | "disabled" | "skipped";
     provider: string;
     model: string;
     device: string;
+    error?: string;
   } | null;
   providers: MusicProviderInfo[];
 }

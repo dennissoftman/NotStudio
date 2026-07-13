@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -36,8 +37,6 @@ async def preload_generation_model(app: FastAPI) -> None:
         }
         return
 
-    from .backends.stable_audio import preload_model
-
     app.state.model = {
         "status": "loading",
         "provider": "stable_audio_local",
@@ -45,11 +44,27 @@ async def preload_generation_model(app: FastAPI) -> None:
         "device": "",
     }
     logger.info("Preloading Stable Audio 3 medium model in the generation worker")
-    model_info = await run_in_reusable_process(
-        "stable-audio-local",
-        preload_model,
-        "medium",
-    )
+    try:
+        from .backends.stable_audio import preload_model
+
+        model_info = await run_in_reusable_process(
+            "stable-audio-local",
+            preload_model,
+            "medium",
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - preload failure must not stop the API
+        app.state.model = {
+            "status": "failed",
+            "provider": "stable_audio_local",
+            "model": "medium",
+            "device": "",
+            "error": str(exc),
+        }
+        logger.exception("Stable Audio 3 model preload failed; API remains available")
+        return
+
     app.state.model = model_info
     logger.info(
         "Stable Audio 3 %s model ready on %s",
@@ -62,12 +77,17 @@ async def preload_generation_model(app: FastAPI) -> None:
 async def lifespan(app: FastAPI):
     await init_db()
     await fail_interrupted_jobs()
+    preload_task = asyncio.create_task(
+        preload_generation_model(app),
+        name="not-studio-model-preload",
+    )
     try:
-        await preload_generation_model(app)
         yield
     finally:
+        preload_task.cancel()
         job_ids = await shutdown_job_tasks()
         await mark_jobs_cancelled_by_shutdown(job_ids)
+        await asyncio.gather(preload_task, return_exceptions=True)
         await shutdown_reusable_processes()
 
 

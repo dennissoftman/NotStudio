@@ -38,6 +38,57 @@ async def test_startup_preloads_model_in_generation_worker(monkeypatch):
     assert test_app.state.model["device"] == "mps"
 
 
+async def test_lifespan_does_not_wait_for_model_preload(monkeypatch):
+    preload_started = asyncio.Event()
+    preload_finished = asyncio.Event()
+    release_preload = asyncio.Event()
+
+    async def slow_preload(test_app):
+        test_app.state.model = {"status": "loading"}
+        preload_started.set()
+        await release_preload.wait()
+        test_app.state.model = {"status": "ready"}
+        preload_finished.set()
+
+    monkeypatch.setattr(main_module, "init_db", AsyncMock())
+    monkeypatch.setattr(main_module, "fail_interrupted_jobs", AsyncMock())
+    monkeypatch.setattr(main_module, "preload_generation_model", slow_preload)
+    monkeypatch.setattr(main_module, "shutdown_job_tasks", AsyncMock(return_value=[]))
+    monkeypatch.setattr(main_module, "mark_jobs_cancelled_by_shutdown", AsyncMock())
+    monkeypatch.setattr(main_module, "shutdown_reusable_processes", AsyncMock())
+    test_app = FastAPI()
+
+    async with main_module.lifespan(test_app):
+        await asyncio.wait_for(preload_started.wait(), timeout=0.5)
+        assert test_app.state.model["status"] == "loading"
+        release_preload.set()
+        await asyncio.wait_for(preload_finished.wait(), timeout=0.5)
+
+    assert test_app.state.model["status"] == "ready"
+
+
+async def test_model_preload_failure_does_not_escape(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "preload_local_model_on_startup", True)
+    monkeypatch.setattr(settings, "default_music_provider", "stable_audio_local")
+
+    async def fail_in_worker(*args, **kwargs):
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr(main_module, "run_in_reusable_process", fail_in_worker)
+    test_app = FastAPI()
+
+    await main_module.preload_generation_model(test_app)
+
+    assert test_app.state.model == {
+        "status": "failed",
+        "provider": "stable_audio_local",
+        "model": "medium",
+        "device": "",
+        "error": "model unavailable",
+    }
+
+
 def test_health_reports_music_providers():
     with TestClient(app) as client:
         health = client.get("/api/health").json()
