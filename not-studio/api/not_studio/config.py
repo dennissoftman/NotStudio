@@ -66,6 +66,11 @@ class Settings(BaseSettings):
         """Where assembled YouTube-style videos are written."""
         return self._subdir("videos")
 
+    @property
+    def video_backgrounds_dir(self) -> Path:
+        """Where user-uploaded visual backdrops are kept for rendering and retries."""
+        return self._subdir("video-backgrounds")
+
 
 @lru_cache
 def get_settings() -> Settings:

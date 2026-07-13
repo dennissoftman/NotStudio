@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { PauseIcon, PlayIcon, XIcon } from "./icons";
+import type { ReactNode } from "react";
+import { MediaPlayer, MediaProvider } from "@vidstack/react";
+import {
+  DefaultAudioLayout,
+  DefaultVideoLayout,
+  defaultLayoutIcons,
+} from "@vidstack/react/player/layouts/default";
+import { XIcon } from "./icons";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
@@ -93,84 +99,36 @@ export function Empty({ children }: { children: ReactNode }) {
   );
 }
 
-const AUDIO_PLAY_EVENT = "not-studio:audio-play";
-
-export function AudioPlayer({
-  src,
-  label,
-  durationSeconds = 0,
-}: {
-  src: string;
-  label: string;
-  durationSeconds?: number;
-}) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const idRef = useRef(Math.random().toString(36).slice(2));
-  const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(durationSeconds);
-
-  useEffect(() => {
-    const pauseOther = (event: Event) => {
-      if ((event as CustomEvent<string>).detail !== idRef.current) audioRef.current?.pause();
-    };
-    window.addEventListener(AUDIO_PLAY_EVENT, pauseOther);
-    return () => window.removeEventListener(AUDIO_PLAY_EVENT, pauseOther);
-  }, []);
-
-  async function toggle() {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (audio.paused) {
-      window.dispatchEvent(new CustomEvent(AUDIO_PLAY_EVENT, { detail: idRef.current }));
-      await audio.play();
-    } else {
-      audio.pause();
-    }
-  }
-
-  const max = duration || 0;
+export function AudioPlayer({ src, label }: { src: string; label: string }) {
   return (
-    <div className="audio-player min-w-64 max-w-full">
-      <audio
-        ref={audioRef}
-        preload="none"
-        src={src}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
-      />
-      <button
-        type="button"
-        aria-label={`${playing ? "Pause" : "Play"} ${label}`}
-        className="audio-play-button"
-        onClick={toggle}
-      >
-        {playing ? <PauseIcon className="h-4 w-4" /> : <PlayIcon className="h-4 w-4 translate-x-px" />}
-      </button>
-      <span className="w-9 shrink-0 text-right text-[11px] tabular-nums text-slate-400">
-        {fmtDuration(currentTime)}
-      </span>
-      <input
-        aria-label={`Seek ${label}`}
-        className="audio-range min-w-20 flex-1"
-        type="range"
-        min={0}
-        max={max}
-        step={0.1}
-        value={Math.min(currentTime, max)}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          if (audioRef.current) audioRef.current.currentTime = next;
-          setCurrentTime(next);
-        }}
-      />
-      <span className="w-9 shrink-0 text-[11px] tabular-nums text-slate-500">
-        {fmtDuration(duration)}
-      </span>
-    </div>
+    <MediaPlayer
+      className="media-audio-player"
+      title={label}
+      src={{ src, type: "audio/flac" }}
+      viewType="audio"
+      streamType="on-demand"
+      preload="metadata"
+    >
+      <MediaProvider />
+      <DefaultAudioLayout icons={defaultLayoutIcons} />
+    </MediaPlayer>
+  );
+}
+
+export function VideoPlayer({ src, label }: { src: string; label: string }) {
+  return (
+    <MediaPlayer
+      className="media-video-player"
+      title={label}
+      src={{ src, type: "video/mp4" }}
+      viewType="video"
+      streamType="on-demand"
+      preload="metadata"
+      playsInline
+    >
+      <MediaProvider />
+      <DefaultVideoLayout icons={defaultLayoutIcons} />
+    </MediaPlayer>
   );
 }
 

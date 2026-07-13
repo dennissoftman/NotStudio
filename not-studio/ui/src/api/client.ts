@@ -2,7 +2,6 @@
 
 export type MusicProvider = "stable_audio_local" | "stable_audio_runpod";
 export type TrackVerdict = "liked" | "disliked" | "unreviewed";
-export type VideoResolution = "2160p" | "1440p" | "1080p" | "720p";
 export type JobStatus = "queued" | "in_progress" | "completed" | "failed" | "cancelled";
 
 export interface MusicProviderInfo {
@@ -76,10 +75,18 @@ export interface Health {
   providers: MusicProviderInfo[];
 }
 
+export interface VideoBackgroundUpload {
+  id: string;
+  filename: string;
+  size_bytes: number;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!(init?.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const res = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers,
   });
   if (!res.ok) {
     let detail = res.statusText;
@@ -124,6 +131,14 @@ export const api = {
     req<HistoryItem>(`/studio/tracks/${id}/review`, { method: "PATCH", body: body(data) }),
   makeVideo: (data: unknown) =>
     req<Job>("/studio/videos", { method: "POST", body: body(data) }),
+  uploadVideoBackground: (file: File) => {
+    const data = new FormData();
+    data.append("file", file);
+    return req<VideoBackgroundUpload>("/studio/video-backgrounds", {
+      method: "POST",
+      body: data,
+    });
+  },
   videos: () => req<HistoryItem[]>("/studio/videos"),
   promptKit: () => req<PromptKit>("/studio/prompt-kit"),
 };

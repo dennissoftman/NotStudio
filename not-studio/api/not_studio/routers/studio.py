@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from .. import video_export
+from ..config import get_settings
+from ..constants import new_id
 from ..deps import get_session
 from ..models import HistoryItem, Job
 from ..schemas import (
@@ -19,6 +23,7 @@ from ..schemas import (
     TasteExample,
     TasteProfile,
     TrackReviewRequest,
+    VideoBackgroundUpload,
 )
 from ..tasks.submit import submit_generate_tracks, submit_make_video
 
@@ -232,16 +237,47 @@ async def make_video(
     payload: MakeVideoRequest,
     session: AsyncSession = Depends(get_session),
 ) -> Job:
-    """Crossfade the selected tracks and render a YouTube-ready video."""
+    """Combine the selected tracks with a looping video using automatic defaults."""
     if not payload.item_ids:
         raise HTTPException(status_code=400, detail="Select at least one track")
+    background_path = get_settings().video_backgrounds_dir / payload.background_id
+    if not background_path.is_file():
+        raise HTTPException(status_code=404, detail="Uploaded video background not found")
     return await submit_make_video(
         session,
         item_ids=payload.item_ids,
-        title=payload.title,
-        visualizer=payload.visualizer,
-        resolution=payload.resolution,
-        crossfade_seconds=payload.crossfade_seconds,
+        background_id=payload.background_id,
+    )
+
+
+@router.post("/video-backgrounds", response_model=VideoBackgroundUpload, status_code=201)
+async def upload_video_background(file: UploadFile = File(...)) -> VideoBackgroundUpload:
+    """Store and inspect any visual format supported by the installed FFmpeg build."""
+    filename = Path(file.filename or "background").name
+    background_id = new_id()
+    destination = get_settings().video_backgrounds_dir / background_id
+    size = 0
+    try:
+        with destination.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                output.write(chunk)
+                size += len(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="Background file is empty")
+        await video_export.validate_video_input(destination)
+    except HTTPException:
+        destination.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        await file.close()
+
+    return VideoBackgroundUpload(
+        id=background_id,
+        filename=filename,
+        size_bytes=size,
     )
 
 

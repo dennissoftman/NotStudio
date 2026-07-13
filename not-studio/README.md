@@ -10,7 +10,8 @@ on album batches, taste review, regeneration, and mix rendering.
 3. Paste the JSON plan into Not Studio and generate a batch.
 4. Listen to each track and mark it liked/disliked.
 5. Use the refreshed prompt kit so the next GPT batch learns from those reviews.
-6. Make a mix from the liked tracks and download the rendered MP4.
+6. Select the tracks in playback order, choose a looping video, and download the
+   automatically rendered MP4.
 
 ## Capabilities
 
@@ -20,7 +21,7 @@ on album batches, taste review, regeneration, and mix rendering.
 | GPT schema + taste export | `/api/studio/prompt-kit` |
 | Human review state | `/api/studio/tracks/{id}/review` |
 | Track history/playback | `/api/studio/tracks`, `/api/history/{id}/audio` |
-| Mix/video rendering | `/api/studio/videos` |
+| Mix/video rendering | `/api/studio/videos`, `/api/studio/video-backgrounds` |
 | Music providers | Local Stable Audio and RunPod Stable Audio |
 
 ## Layout
@@ -75,12 +76,25 @@ signals automatically.
 
 ## Mix export
 
-The Review page can export 2160p, 1440p, 1080p, or 720p H.264 video. Audio is
-encoded once into the MP4 as AAC-LC without increasing the source mix sample
-rate, channel count, or bitrate. When source tracks differ, the mix uses the
-lowest native sample rate and channel count so no lower-quality input is
-interpolated upward. Crossfading is streamed through ffmpeg, so the full album
-is not loaded into a growing in-memory buffer before rendering.
+Mix export is decision-only: select and order the tracks, then choose the video.
+There are no visualizer, title, resolution, transition, or effect controls. The
+tracks play consecutively in the selected order while the technical encoding
+details are applied automatically.
+
+The required video can use any container or codec that the local
+FFmpeg build can decode, including MP4, MKV, AVI, MOV, and WebM. The input clip
+keeps its dimensions, is muted, and loops for the complete audio sequence.
+Regardless of the source codec, the downloaded result is an MP4 with H.264
+high-profile video, yuv420p pixel format, AAC-LC audio, and fast-start metadata
+for broad YouTube and browser compatibility. Python code builds and monitors
+these operations through the documented `python-ffmpeg` package instead of
+calling `subprocess` directly. FFmpeg timestamp progress is mapped onto the
+existing job progress bar and live WebSocket updates.
+
+Track previews and rendered mixes use Vidstack's production-ready React audio
+and video layouts, including accessible play, seek, volume, mute, keyboard,
+picture-in-picture, and fullscreen behavior. Not Studio does not maintain a
+homegrown browser media player.
 
 ## Audio Generation
 
