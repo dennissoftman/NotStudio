@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import {
   MediaPlayer,
   MediaProvider,
@@ -103,26 +103,36 @@ export function Empty({ children }: { children: ReactNode }) {
   );
 }
 
-const AUDIO_PLAY_EVENT = "not-studio:audio-play";
+let activeAudioPlayer: MediaPlayerInstance | null = null;
 
 export function AudioPlayer({ src, label }: { src: string; label: string }) {
   const player = useRef<MediaPlayerInstance>(null);
-  const playerId = useId();
+
+  const releasePlayer = () => {
+    if (activeAudioPlayer === player.current) {
+      activeAudioPlayer = null;
+    }
+  };
+
+  const activatePlayer = () => {
+    const currentPlayer = player.current;
+    if (!currentPlayer) return;
+
+    const previousPlayer = activeAudioPlayer;
+    activeAudioPlayer = currentPlayer;
+    if (previousPlayer && previousPlayer !== currentPlayer) {
+      void previousPlayer.pause();
+    }
+  };
 
   useEffect(() => {
-    const pauseOtherPlayer = (event: Event) => {
-      const currentPlayer = player.current;
-      if (
-        (event as CustomEvent<string>).detail !== playerId &&
-        currentPlayer &&
-        !currentPlayer.paused
-      ) {
-        void currentPlayer.pause();
+    const mountedPlayer = player.current;
+    return () => {
+      if (activeAudioPlayer === mountedPlayer) {
+        activeAudioPlayer = null;
       }
     };
-    window.addEventListener(AUDIO_PLAY_EVENT, pauseOtherPlayer);
-    return () => window.removeEventListener(AUDIO_PLAY_EVENT, pauseOtherPlayer);
-  }, [playerId]);
+  }, []);
 
   return (
     <MediaPlayer
@@ -133,9 +143,9 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
       viewType="audio"
       streamType="on-demand"
       preload="metadata"
-      onPlay={() => {
-        window.dispatchEvent(new CustomEvent(AUDIO_PLAY_EVENT, { detail: playerId }));
-      }}
+      onPlay={activatePlayer}
+      onPause={releasePlayer}
+      onEnded={releasePlayer}
     >
       <MediaProvider />
       <DefaultAudioLayout icons={defaultLayoutIcons} />

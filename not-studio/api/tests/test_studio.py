@@ -62,6 +62,20 @@ def test_local_stable_audio_always_resolves_to_medium():
     assert stable_audio._resolve_model_name("anything-else") == "medium"
 
 
+def test_local_stable_audio_preload_returns_serializable_readiness(monkeypatch):
+    class Model:
+        device = "mps"
+
+    monkeypatch.setattr(stable_audio, "_load_model", lambda model_name: Model())
+
+    assert stable_audio.preload_model("anything") == {
+        "status": "ready",
+        "provider": "stable_audio_local",
+        "model": "medium",
+        "device": "mps",
+    }
+
+
 def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
     monkeypatch.setattr(stable_audio, "_resolve_model_name", lambda requested: requested)
     monkeypatch.setattr(stable_audio, "_load_model", lambda model_name: object())

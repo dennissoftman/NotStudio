@@ -54,6 +54,18 @@ function Sidebar() {
             {health?.jobs ?? "offline"}
           </span>
         </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-slate-500">Model</span>
+          <span
+            className={
+              health?.model?.status === "ready" ? "text-emerald-400" : "text-amber-400"
+            }
+          >
+            {health?.model?.status === "ready"
+              ? `${health.model.model} ready`
+              : (health?.model?.status ?? "offline")}
+          </span>
+        </div>
       </div>
     </aside>
   );

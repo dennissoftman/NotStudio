@@ -68,8 +68,8 @@ export default function Library() {
   const review = useReviewTrack();
   const del = useDeleteHistory();
 
-  const likedIds = useMemo(
-    () => (tracks ?? []).filter((track) => verdictOf(track) === "liked").map((track) => track.id),
+  const availableTrackIds = useMemo(
+    () => new Set((tracks ?? []).map((track) => track.id)),
     [tracks],
   );
   const [selected, setSelected] = useState<string[]>([]);
@@ -97,10 +97,10 @@ export default function Library() {
 
   useEffect(() => {
     setSelected((current) => {
-      if (current.length > 0) return current.filter((id) => likedIds.includes(id));
-      return likedIds;
+      const available = current.filter((id) => availableTrackIds.has(id));
+      return available.length === current.length ? current : available;
     });
-  }, [likedIds]);
+  }, [availableTrackIds]);
 
   const counts = useMemo(() => {
     const initial = { liked: 0, disliked: 0, unreviewed: 0 };
@@ -118,14 +118,12 @@ export default function Library() {
     const current = verdictOf(track);
     const next = current === verdict ? "unreviewed" : verdict;
     await review.mutateAsync({ id: track.id, verdict: next });
-    if (next === "liked") setSelected((ids) => (ids.includes(track.id) ? ids : [...ids, track.id]));
-    if (next === "disliked") setSelected((ids) => ids.filter((id) => id !== track.id));
   }
 
   async function combine() {
     setError("");
     if (selected.length === 0) {
-      setError("Like and select at least one track");
+      setError("Select at least one track");
       return;
     }
     if (!background) {
@@ -213,9 +211,8 @@ export default function Library() {
                     <button
                       onClick={() => toggle(track.id)}
                       title="Select for the mix"
-                      disabled={verdict === "disliked"}
                       className={cx(
-                        "icon-button h-9 w-9 disabled:opacity-40",
+                        "icon-button h-9 w-9",
                         idx >= 0
                           ? "!border-accent !bg-accent !text-white"
                           : "hover:!border-accent hover:!text-accent-soft",

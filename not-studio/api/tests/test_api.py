@@ -3,12 +3,39 @@
 import asyncio
 from unittest.mock import AsyncMock
 
+from fastapi import FastAPI
 from starlette.testclient import TestClient
 
+from not_studio import main as main_module
 from not_studio.db import init_db, session_scope
 from not_studio.config import get_settings
 from not_studio.main import app
 from not_studio.models import HistoryItem, Job
+
+
+async def test_startup_preloads_model_in_generation_worker(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "preload_local_model_on_startup", True)
+    monkeypatch.setattr(settings, "default_music_provider", "stable_audio_local")
+    calls: list[tuple[str, str]] = []
+
+    async def run_in_worker(name, func, model):
+        calls.append((name, model))
+        return {
+            "status": "ready",
+            "provider": "stable_audio_local",
+            "model": "medium",
+            "device": "mps",
+        }
+
+    monkeypatch.setattr(main_module, "run_in_reusable_process", run_in_worker)
+    test_app = FastAPI()
+
+    await main_module.preload_generation_model(test_app)
+
+    assert calls == [("stable-audio-local", "medium")]
+    assert test_app.state.model["status"] == "ready"
+    assert test_app.state.model["device"] == "mps"
 
 
 def test_health_reports_music_providers():
@@ -16,6 +43,7 @@ def test_health_reports_music_providers():
         health = client.get("/api/health").json()
         assert health["status"] == "ok"
         assert health["jobs"] == "local-background"
+        assert health["model"]["status"] == "disabled"
         providers = {p["provider"]: p for p in health["providers"]}
         assert set(providers) == {"stable_audio_local", "stable_audio_runpod"}
 

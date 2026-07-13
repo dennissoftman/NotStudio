@@ -1,4 +1,5 @@
 import asyncio
+import signal
 import time
 from pathlib import Path
 
@@ -28,8 +29,20 @@ def _increment_counter() -> int:
     return _counter
 
 
+def _sigint_is_ignored() -> bool:
+    return signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+
+
 async def test_run_in_process_returns_success_payload():
     assert await run_in_process(_return_pair) == ("ok", "value")
+
+
+async def test_worker_processes_leave_sigint_to_api_parent():
+    assert await run_in_process(_sigint_is_ignored)
+    try:
+        assert await run_in_reusable_process("test-signal", _sigint_is_ignored)
+    finally:
+        await shutdown_reusable_processes()
 
 
 async def test_reusable_process_keeps_child_state_between_calls():

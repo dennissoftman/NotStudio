@@ -72,6 +72,12 @@ export interface HistoryItem {
 export interface Health {
   status: string;
   jobs: string;
+  model: {
+    status: "loading" | "ready" | "disabled" | "skipped";
+    provider: string;
+    model: string;
+    device: string;
+  } | null;
   providers: MusicProviderInfo[];
 }
 

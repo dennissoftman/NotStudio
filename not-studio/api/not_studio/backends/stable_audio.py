@@ -32,6 +32,18 @@ def _load_model(model_name: str) -> Any:
     return model
 
 
+def preload_model(model: str = "medium") -> dict[str, str]:
+    """Load the generation model into this worker and return serializable readiness data."""
+    model_name = _resolve_model_name(model)
+    loaded_model = _load_model(model_name)
+    return {
+        "status": "ready",
+        "provider": "stable_audio_local",
+        "model": model_name,
+        "device": str(getattr(loaded_model, "device", "unknown")),
+    }
+
+
 def _generate_audio_array(model: Any, prompt: str, duration: float, output_rate: int) -> np.ndarray:
     import torch
     from torchaudio.functional import resample

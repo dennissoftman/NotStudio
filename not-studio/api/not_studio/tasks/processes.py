@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import multiprocessing as mp
 import queue
+import signal
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ def _entrypoint(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
 ) -> None:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
         result_queue.put(("ok", func(*args, **kwargs), ""))
     except BaseException as exc:  # noqa: BLE001 - preserve child-process failure text
@@ -33,6 +35,7 @@ def _entrypoint(
 
 
 def _persistent_entrypoint(task_queue: mp.Queue, result_queue: mp.Queue) -> None:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     while True:
         task = task_queue.get()
         if task is None:

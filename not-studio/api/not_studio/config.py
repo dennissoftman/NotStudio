@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     # Track generation -----------------------------------------------------
     default_music_provider: str = "stable_audio_local"
+    preload_local_model_on_startup: bool = True
     runpod_endpoint_id: str = ""
     runpod_api_key: str = ""
     runpod_base_url: str = "https://api.runpod.ai/v2"
