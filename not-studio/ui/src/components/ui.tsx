@@ -1,5 +1,9 @@
-import type { ReactNode } from "react";
-import { MediaPlayer, MediaProvider } from "@vidstack/react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
+import {
+  MediaPlayer,
+  MediaProvider,
+  type MediaPlayerInstance,
+} from "@vidstack/react";
 import {
   DefaultAudioLayout,
   DefaultVideoLayout,
@@ -99,15 +103,39 @@ export function Empty({ children }: { children: ReactNode }) {
   );
 }
 
+const AUDIO_PLAY_EVENT = "not-studio:audio-play";
+
 export function AudioPlayer({ src, label }: { src: string; label: string }) {
+  const player = useRef<MediaPlayerInstance>(null);
+  const playerId = useId();
+
+  useEffect(() => {
+    const pauseOtherPlayer = (event: Event) => {
+      const currentPlayer = player.current;
+      if (
+        (event as CustomEvent<string>).detail !== playerId &&
+        currentPlayer &&
+        !currentPlayer.paused
+      ) {
+        void currentPlayer.pause();
+      }
+    };
+    window.addEventListener(AUDIO_PLAY_EVENT, pauseOtherPlayer);
+    return () => window.removeEventListener(AUDIO_PLAY_EVENT, pauseOtherPlayer);
+  }, [playerId]);
+
   return (
     <MediaPlayer
+      ref={player}
       className="media-audio-player"
       title={label}
       src={{ src, type: "audio/flac" }}
       viewType="audio"
       streamType="on-demand"
       preload="metadata"
+      onPlay={() => {
+        window.dispatchEvent(new CustomEvent(AUDIO_PLAY_EVENT, { detail: playerId }));
+      }}
     >
       <MediaProvider />
       <DefaultAudioLayout icons={defaultLayoutIcons} />
