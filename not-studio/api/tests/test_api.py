@@ -240,18 +240,6 @@ def test_prompt_kit_exposes_genre_schema_and_review_history():
                     },
                 )
             )
-            session.add(
-                HistoryItem(
-                    kind="track",
-                    title="Not This",
-                    path="/tmp/disliked.flac",
-                    meta={
-                        "genre": "festival EDM",
-                        "prompt": "huge drops and bright supersaws",
-                        "review": {"verdict": "disliked"},
-                    },
-                )
-            )
             await session.commit()
 
     with TestClient(app) as client:
@@ -260,12 +248,21 @@ def test_prompt_kit_exposes_genre_schema_and_review_history():
 
     assert response.status_code == 200
     body = response.json()
-    required = body["output_schema"]["items"]["required"]
-    assert "genre" in required
+    assert body["artwork_guidance"] == ""
+    assert any("artwork_guidance" in requirement for requirement in body["requirements"])
+    top_level_required = body["output_schema"]["required"]
+    prompt_required = body["output_schema"]["$defs"]["PromptSpec"]["required"]
+    assert top_level_required == ["album_title", "prompts"]
+    assert "genre" in prompt_required
+    assert "notes" in body["output_schema"]["$defs"]["PromptSpec"]["properties"]
+    assert "artwork_prompt" in body["output_schema"]["$defs"]["PromptSpec"]["properties"]
+    assert body["example"]["album_title"] == "Glass Transit"
+    assert body["example"]["artwork_prompt"]
+    assert body["example"]["prompts"][0]["title"] == "Last Platform"
+    assert body["example"]["prompts"][0]["artwork_prompt"]
     assert body["taste_profile"]["liked_genres"] == ["deep house"]
-    assert body["taste_profile"]["disliked_genres"] == ["festival edm"]
     assert "liked_count" not in body["taste_profile"]
-    assert "disliked_count" not in body["taste_profile"]
+    assert "disliked_examples" not in body["taste_profile"]
     assert any(item["genre"] == "deep house" for item in body["taste_profile"]["liked_examples"])
 
 

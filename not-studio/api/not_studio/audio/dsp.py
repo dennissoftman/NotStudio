@@ -244,3 +244,17 @@ def write_audio_file(
     if track_number is not None:
         audio["tracknumber"] = str(track_number)
     audio.save()
+
+
+def copy_flac_pictures(source: str | Path, destination: str | Path) -> None:
+    """Copy embedded FLAC pictures while leaving the regenerated audio untouched."""
+    from mutagen.flac import FLAC
+
+    source_audio = FLAC(source)
+    if not source_audio.pictures:
+        return
+    destination_audio = FLAC(destination)
+    destination_audio.clear_pictures()
+    for picture in source_audio.pictures:
+        destination_audio.add_picture(picture)
+    destination_audio.save()

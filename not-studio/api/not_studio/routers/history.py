@@ -44,11 +44,14 @@ async def get_audio(item_id: str) -> FileResponse:
     async with session_scope() as session:
         item = await get_or_404(session, HistoryItem, item_id)
         item_path = item.path
+        item_title = item.title
     path = Path(item_path)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Audio file missing")
     media = _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
-    return FileResponse(path, media_type=media, filename=path.name)
+    safe_title = "".join(c for c in item_title if c.isalnum() or c in " ._-").strip()
+    filename = f"{safe_title or 'track'}{path.suffix.lower()}"
+    return FileResponse(path, media_type=media, filename=filename)
 
 
 @router.delete("/{item_id}", status_code=204)

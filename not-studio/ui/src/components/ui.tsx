@@ -119,10 +119,10 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
     if (!currentPlayer) return;
 
     const previousPlayer = activeAudioPlayer;
-    activeAudioPlayer = currentPlayer;
     if (previousPlayer && previousPlayer !== currentPlayer) {
-      void previousPlayer.pause();
+      if (!previousPlayer.state.paused) void previousPlayer.pause();
     }
+    activeAudioPlayer = currentPlayer;
   };
 
   useEffect(() => {
@@ -144,7 +144,6 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
       streamType="on-demand"
       preload="metadata"
       onPlay={activatePlayer}
-      onPause={releasePlayer}
       onEnded={releasePlayer}
     >
       <MediaProvider />

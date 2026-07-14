@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.4",
     "numpy>=1.26",
     "soundfile>=0.12",
+    "mutagen>=1.47",
     "pyloudnorm>=0.1.1",
     "python-multipart>=0.0.9",
     "python-ffmpeg>=2.0.12,<3",

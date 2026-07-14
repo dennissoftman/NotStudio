@@ -23,6 +23,8 @@ class PromptSpec(BaseModel):
     genre: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=1, max_length=4000)
     duration: float = Field(ge=15.0, le=900.0)
+    notes: str | None = Field(default=None, max_length=1000)
+    artwork_prompt: str | None = Field(default=None, max_length=2000)
 
 
 class GenerateAlbumRequest(BaseModel):
@@ -36,14 +38,27 @@ class GenerateAlbumRequest(BaseModel):
     model: Literal["medium"] | None = None
 
 
-class GenerateTracksRequest(BaseModel):
-    prompts: list[PromptSpec]
+class PromptPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    album_title: str = Field(min_length=1, max_length=160)
+    notes: str | None = Field(default=None, max_length=2000)
+    artwork_prompt: str | None = Field(default=None, max_length=2000)
+    prompts: list[PromptSpec] = Field(min_length=1, max_length=20)
+
+
+class GenerateTracksRequest(PromptPlan):
     provider: MusicProvider | None = None
     model: Literal["medium"] | None = None
 
 
+class AlbumExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=160)
+    item_ids: list[str] = Field(min_length=1, max_length=100)
+
+
 class TrackReviewRequest(BaseModel):
-    verdict: Literal["liked", "disliked", "unreviewed"]
+    verdict: Literal["liked", "unreviewed"]
     note: str | None = Field(default=None, max_length=500)
 
 
@@ -73,11 +88,9 @@ class TasteExample(BaseModel):
 
 class TasteProfile(BaseModel):
     liked_genres: set[str]
-    disliked_genres: set[str]
     liked_examples: list[TasteExample]
-    disliked_examples: list[TasteExample]
 
-    @field_validator("liked_genres", "disliked_genres", mode="before")
+    @field_validator("liked_genres", mode="before")
     @classmethod
     def normalize_genres(cls, value: object) -> set[str]:
         if not isinstance(value, (list, set, tuple)):
@@ -86,7 +99,7 @@ class TasteProfile(BaseModel):
             normalized for genre in value if (normalized := " ".join(str(genre).lower().split()))
         }
 
-    @field_serializer("liked_genres", "disliked_genres")
+    @field_serializer("liked_genres")
     def serialize_genres(self, value: set[str]) -> list[str]:
         return sorted(value)
 
@@ -94,6 +107,7 @@ class TasteProfile(BaseModel):
 class PromptKitResponse(BaseModel):
     task: str
     requirements: list[str]
+    artwork_guidance: str = ""
     output_schema: dict[str, Any]
-    example: list[PromptSpec]
+    example: PromptPlan
     taste_profile: TasteProfile

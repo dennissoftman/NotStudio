@@ -30,6 +30,14 @@ export function DownloadIcon(props: IconProps) {
   return <svg {...shared} {...props}><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16" /></svg>;
 }
 
+export function RetryIcon(props: IconProps) {
+  return <svg {...shared} {...props}><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.1 8.5A7 7 0 0 1 18.7 7L20 12M4 12l1.3 5A7 7 0 0 0 17.9 15.5" /></svg>;
+}
+
+export function ImageIcon(props: IconProps) {
+  return <svg {...shared} {...props}><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.5" /><path d="m4 17 4.5-4.5 3 3 2-2L20 20" /></svg>;
+}
+
 export function CopyIcon(props: IconProps) {
   return <svg {...shared} {...props}><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>;
 }

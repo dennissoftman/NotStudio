@@ -81,7 +81,4 @@
   .review-button-liked {
     @apply border-emerald-500/70 bg-emerald-500/15 text-emerald-300 shadow-sm shadow-emerald-500/10;
   }
-  .review-button-disliked {
-    @apply border-rose-500/70 bg-rose-500/15 text-rose-300 shadow-sm shadow-rose-500/10;
-  }
 }

@@ -1,7 +1,7 @@
 // Typed client for the Not Studio API.
 
 export type MusicProvider = "stable_audio_local" | "stable_audio_runpod";
-export type TrackVerdict = "liked" | "disliked" | "unreviewed";
+export type TrackVerdict = "liked" | "unreviewed";
 export type JobStatus = "queued" | "in_progress" | "completed" | "failed" | "cancelled";
 
 export interface MusicProviderInfo {
@@ -17,6 +17,15 @@ export interface PromptSpec {
   genre: string;
   prompt: string;
   duration: number;
+  notes?: string | null;
+  artwork_prompt?: string | null;
+}
+
+export interface PromptPlan {
+  album_title: string;
+  notes?: string | null;
+  artwork_prompt?: string | null;
+  prompts: PromptSpec[];
 }
 
 export interface TasteExample {
@@ -29,13 +38,12 @@ export interface TasteExample {
 export interface PromptKit {
   task: string;
   requirements: string[];
+  artwork_guidance: string;
   output_schema: Record<string, unknown>;
-  example: PromptSpec[];
+  example: PromptPlan;
   taste_profile: {
     liked_genres: string[];
-    disliked_genres: string[];
     liked_examples: TasteExample[];
-    disliked_examples: TasteExample[];
   };
 }
 
@@ -109,6 +117,25 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function downloadReq(path: string, data: unknown): Promise<Blob> {
+  const res = await fetch(`/api${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const payload = await res.json();
+      detail = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  return res.blob();
+}
+
 const body = (data: unknown) => JSON.stringify(data);
 
 export const api = {
@@ -125,9 +152,13 @@ export const api = {
   history: () => req<HistoryItem[]>("/history"),
   deleteHistory: (id: string) => req<void>(`/history/${id}`, { method: "DELETE" }),
   audioUrl: (id: string) => `/api/history/${id}/audio`,
+  artworkUrl: (id: string, version?: string) =>
+    `/api/studio/tracks/${id}/artwork${version ? `?v=${encodeURIComponent(version)}` : ""}`,
 
   generateAlbum: (data: unknown) =>
     req<Job>("/studio/albums/generate", { method: "POST", body: body(data) }),
+  downloadAlbum: (data: { title: string; item_ids: string[] }) =>
+    downloadReq("/studio/albums/export", data),
   generateTracks: (data: unknown) =>
     req<Job>("/studio/generate", { method: "POST", body: body(data) }),
   tracks: (params?: { verdict?: TrackVerdict }) => {
@@ -136,6 +167,13 @@ export const api = {
   },
   reviewTrack: (id: string, data: { verdict: TrackVerdict; note?: string | null }) =>
     req<HistoryItem>(`/studio/tracks/${id}/review`, { method: "PATCH", body: body(data) }),
+  regenerateTrack: (id: string) =>
+    req<Job>(`/studio/tracks/${id}/regenerate`, { method: "POST" }),
+  setTrackArtwork: (id: string, file: File) => {
+    const data = new FormData();
+    data.append("file", file);
+    return req<HistoryItem>(`/studio/tracks/${id}/artwork`, { method: "POST", body: data });
+  },
   makeVideo: (data: unknown) =>
     req<Job>("/studio/videos", { method: "POST", body: body(data) }),
   uploadVideoBackground: (file: File) => {

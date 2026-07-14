@@ -6,12 +6,12 @@ on album batches, taste review, regeneration, and mix rendering.
 ## Workflow
 
 1. Copy the GPT prompt kit from the Generate page.
-2. Ask GPT to draft a JSON track plan using the included schema and taste profile.
+2. Ask GPT to draft a JSON album plan using the included schema and taste profile.
 3. Paste the JSON plan into Not Studio and generate a batch.
-4. Listen to each track and mark it liked/disliked.
+4. Listen to each track, like keepers, or regenerate a candidate in place.
 5. Use the refreshed prompt kit so the next GPT batch learns from those reviews.
-6. Select the tracks in playback order, choose a looping video, and download the
-   automatically rendered MP4.
+6. Select tracks in album order and download tagged FLACs plus a CUE in one ZIP.
+7. Optionally choose a looping video and render the same ordered selection as an MP4.
 
 ## Capabilities
 
@@ -20,6 +20,9 @@ on album batches, taste review, regeneration, and mix rendering.
 | Paste-first prompt generation | `ui/src/pages/Generate.tsx`, `/api/studio/generate` |
 | GPT schema + taste export | `/api/studio/prompt-kit` |
 | Human review state | `/api/studio/tracks/{id}/review` |
+| In-place track regeneration | `/api/studio/tracks/{id}/regenerate` |
+| Embedded FLAC artwork | `/api/studio/tracks/{id}/artwork` |
+| Album ZIP + CUE export | `/api/studio/albums/export` |
 | Track history/playback | `/api/studio/tracks`, `/api/history/{id}/audio` |
 | Mix/video rendering | `/api/studio/videos`, `/api/studio/video-backgrounds` |
 | Music providers | Local Stable Audio and RunPod Stable Audio |
@@ -69,10 +72,21 @@ npm run build
 ## Prompt plans and taste
 
 Not Studio does not run an embedded LLM. The UI exposes a copyable GPT prompt
-kit containing the exact JSON schema, an example, and up to 20 recent liked and
-disliked prompts. Every prompt item requires `title`, `genre`, `prompt`, and
-`duration`. After reviews change, copying the kit again includes the new taste
-signals automatically.
+kit containing the exact JSON schema, an example, and up to 20 recent liked
+prompts. The top-level object requires `album_title` and a `prompts` list, with
+optional `notes` and `artwork_prompt` fields for album and future cover-art
+direction. Every prompt item requires `title`, `genre`, `prompt`, and `duration`.
+Prompt items may also carry their own `notes` and `artwork_prompt` for track icons.
+The Generate page also keeps a browser-saved `artwork_guidance` value in the
+copied GPT prompt kit for persistent visual style and constraint instructions.
+After reviews change, copying the kit again includes the new taste signals automatically.
+
+## Album export
+
+The numbered Review selection is also the album track order. Album export
+downloads a ZIP containing numbered FLAC copies, embedded cover artwork, album
+and track-number metadata, and a multi-file CUE sheet. Export only modifies the
+copies inside the ZIP; reviewed library files remain unchanged.
 
 ## Mix export
 
@@ -95,6 +109,9 @@ Track previews and rendered mixes use Vidstack's production-ready React audio
 and video layouts, including accessible play, seek, volume, mute, keyboard,
 picture-in-picture, and fullscreen behavior. Not Studio does not maintain a
 homegrown browser media player.
+
+Review cards can embed optional PNG, JPEG, or WebP cover artwork directly in
+the generated FLAC. The same card downloads the FLAC with that artwork intact.
 
 ## Audio Generation
 

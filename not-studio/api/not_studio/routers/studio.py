@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from starlette.background import BackgroundTask
+from starlette.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from .. import video_export
+from ..album_export import create_album_archive, safe_filename
 from ..config import get_settings
 from ..constants import new_id
 from ..deps import get_session
@@ -17,8 +22,10 @@ from ..models import HistoryItem, Job
 from ..schemas import (
     GenerateAlbumRequest,
     GenerateTracksRequest,
+    AlbumExportRequest,
     MakeVideoRequest,
     PromptKitResponse,
+    PromptPlan,
     PromptSpec,
     TasteExample,
     TasteProfile,
@@ -98,6 +105,41 @@ async def generate_album(
     )
 
 
+@router.post("/albums/export", response_class=FileResponse)
+async def export_album(
+    payload: AlbumExportRequest,
+    session: AsyncSession = Depends(get_session),
+) -> FileResponse:
+    """Download selected tracks in order as tagged FLACs plus a multi-file CUE."""
+    items: list[HistoryItem] = []
+    for item_id in payload.item_ids:
+        item = await session.get(HistoryItem, item_id)
+        if item is None or item.kind != "track":
+            raise HTTPException(status_code=404, detail=f"Track not found: {item_id}")
+        path = Path(item.path)
+        if path.suffix.lower() != ".flac" or not path.is_file():
+            raise HTTPException(
+                status_code=400, detail=f"Track is not an available FLAC: {item.title}"
+            )
+        items.append(item)
+
+    output = tempfile.NamedTemporaryFile(prefix="not-studio-album-", suffix=".zip", delete=False)
+    output.close()
+    output_path = Path(output.name)
+    try:
+        await asyncio.to_thread(create_album_archive, payload.title.strip(), items, output_path)
+    except Exception as exc:  # noqa: BLE001
+        output_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Could not assemble album: {exc}") from exc
+    filename = f"{safe_filename(payload.title, 'album')}.zip"
+    return FileResponse(
+        output_path,
+        media_type="application/zip",
+        filename=filename,
+        background=BackgroundTask(output_path.unlink, missing_ok=True),
+    )
+
+
 @router.post("/generate", response_model=Job, status_code=201)
 async def generate(
     payload: GenerateTracksRequest,
@@ -111,6 +153,12 @@ async def generate(
         prompts=[p.model_dump() for p in payload.prompts],
         provider=payload.provider,
         model=payload.model,
+        album={
+            "title": payload.album_title.strip(),
+            "notes": payload.notes.strip() if payload.notes else None,
+            "artwork_prompt": payload.artwork_prompt.strip() if payload.artwork_prompt else None,
+            "track_count": len(payload.prompts),
+        },
     )
 
 
@@ -143,46 +191,57 @@ async def get_prompt_kit(session: AsyncSession = Depends(get_session)) -> Prompt
         .limit(500)
     )
     liked: list[TasteExample] = []
-    disliked: list[TasteExample] = []
     for item in res.scalars().all():
         verdict = (item.meta or {}).get("review", {}).get("verdict", "unreviewed")
         if verdict == "liked":
             if len(liked) < 20:
                 liked.append(_taste_example(item))
-        elif verdict == "disliked":
-            if len(disliked) < 20:
-                disliked.append(_taste_example(item))
 
-    item_schema = PromptSpec.model_json_schema()
     return PromptKitResponse(
         task=(
-            "Create a coherent batch of instrumental music-generation prompts. "
-            "Return only the JSON array described by output_schema."
+            "Create a coherent instrumental album plan. "
+            "Return only the JSON object described by output_schema."
         ),
         requirements=[
-            "Use liked examples as positive taste signals and disliked examples as negative signals.",
+            "Use liked examples as positive taste signals.",
             "Infer reusable musical preferences; do not copy prior titles or prompts verbatim.",
+            "Give the album a concise original title and optional notes about its overall direction.",
+            "Provide an optional artwork_prompt describing a square cover without text or logos.",
+            "Individual prompts may also include notes and artwork_prompt for track-specific icons.",
+            "Follow artwork_guidance when writing album and track artwork_prompt fields.",
             "Make each prompt specific about arrangement, instrumentation, texture, energy, and tempo feel.",
             "Avoid artist names and copyrighted song references.",
             "Keep duration between 15 and 900 seconds and provide a genre for every track.",
         ],
-        output_schema={"type": "array", "minItems": 1, "maxItems": 20, "items": item_schema},
-        example=[
-            PromptSpec(
-                title="Glass Transit",
-                genre="ambient techno",
-                prompt=(
-                    "Instrumental ambient techno with a restrained four-on-the-floor pulse, "
-                    "granular pads, muted sub bass, slow harmonic movement, and a spacious outro"
-                ),
-                duration=180,
-            )
-        ],
+        artwork_guidance="",
+        output_schema=PromptPlan.model_json_schema(),
+        example=PromptPlan(
+            album_title="Glass Transit",
+            notes="A restrained nocturnal arc that grows warmer toward the final track.",
+            artwork_prompt=(
+                "Square abstract cover, translucent glass forms crossing dark rail lines, "
+                "midnight violet and muted cyan, soft grain, no text, no logo"
+            ),
+            prompts=[
+                PromptSpec(
+                    title="Last Platform",
+                    genre="ambient techno",
+                    prompt=(
+                        "Instrumental ambient techno with a restrained four-on-the-floor pulse, "
+                        "granular pads, muted sub bass, slow harmonic movement, and a spacious outro"
+                    ),
+                    duration=180,
+                    notes="The quiet opening track; lonely but not bleak.",
+                    artwork_prompt=(
+                        "Square track icon, empty glass railway platform at night, "
+                        "violet reflections, minimal composition, no text"
+                    ),
+                )
+            ],
+        ),
         taste_profile=TasteProfile(
             liked_genres=_genres(liked),
-            disliked_genres=_genres(disliked),
             liked_examples=liked,
-            disliked_examples=disliked,
         ),
     )
 
@@ -190,7 +249,7 @@ async def get_prompt_kit(session: AsyncSession = Depends(get_session)) -> Prompt
 @router.get("/tracks", response_model=list[HistoryItem])
 async def list_tracks(
     session: AsyncSession = Depends(get_session),
-    verdict: str | None = Query(default=None, pattern="^(liked|disliked|unreviewed)$"),
+    verdict: str | None = Query(default=None, pattern="^(liked|unreviewed)$"),
     limit: int = Query(default=200, le=1000),
 ) -> list[HistoryItem]:
     res = await session.execute(
@@ -205,7 +264,8 @@ async def list_tracks(
     return [
         t
         for t in tracks
-        if (t.meta or {}).get("review", {}).get("verdict", "unreviewed") == verdict
+        if ("liked" if (t.meta or {}).get("review", {}).get("verdict") == "liked" else "unreviewed")
+        == verdict
     ]
 
 
@@ -230,6 +290,115 @@ async def review_track(
     await session.commit()
     await session.refresh(item)
     return item
+
+
+@router.post("/tracks/{item_id}/regenerate", response_model=Job, status_code=201)
+async def regenerate_track(
+    item_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> Job:
+    """Regenerate one track from its original prompt and replace it on success."""
+    item = await session.get(HistoryItem, item_id)
+    if item is None or item.kind != "track":
+        raise HTTPException(status_code=404, detail="Track not found")
+    meta = dict(item.meta or {})
+    prompt = str(meta.get("prompt") or "").strip()
+    genre = str(meta.get("genre") or "instrumental").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Track does not have a reusable prompt")
+    spec = {
+        "title": item.title,
+        "genre": genre,
+        "prompt": prompt,
+        "duration": max(15.0, min(900.0, item.duration_seconds)),
+    }
+    for key in (
+        "target_duration",
+        "duration_variation_percent",
+        "mood",
+        "styles",
+        "album_title",
+        "track_index",
+        "track_count",
+        "notes",
+        "artwork_prompt",
+    ):
+        if key in meta:
+            spec[key] = meta[key]
+    return await submit_generate_tracks(
+        session,
+        prompts=[spec],
+        provider=str(meta.get("provider") or "") or None,
+        album=dict(meta.get("album") or {}),
+        replacement_item_id=item.id,
+    )
+
+
+@router.post("/tracks/{item_id}/artwork", response_model=HistoryItem)
+async def set_track_artwork(
+    item_id: str,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+) -> HistoryItem:
+    """Embed optional cover artwork into a FLAC track."""
+    item = await session.get(HistoryItem, item_id)
+    if item is None or item.kind != "track":
+        raise HTTPException(status_code=404, detail="Track not found")
+    path = Path(item.path)
+    if path.suffix.lower() != ".flac" or not path.is_file():
+        raise HTTPException(status_code=400, detail="Artwork embedding requires an existing FLAC")
+    mime = (file.content_type or "").lower()
+    if mime not in {"image/jpeg", "image/png", "image/webp"}:
+        raise HTTPException(status_code=400, detail="Use a PNG, JPEG, or WebP image")
+    data = await file.read(10 * 1024 * 1024 + 1)
+    await file.close()
+    if not data:
+        raise HTTPException(status_code=400, detail="Artwork file is empty")
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Artwork must be 10 MB or smaller")
+    try:
+        from mutagen.flac import FLAC, Picture
+
+        audio = FLAC(path)
+        picture = Picture()
+        picture.type = 3
+        picture.mime = mime
+        picture.desc = "Cover"
+        picture.data = data
+        audio.clear_pictures()
+        audio.add_picture(picture)
+        audio.save()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Could not embed artwork: {exc}") from exc
+    meta = dict(item.meta or {})
+    meta["artwork"] = {"mime": mime, "updated_at": datetime.now(UTC).isoformat()}
+    item.meta = meta
+    item.size_bytes = path.stat().st_size
+    session.add(item)
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+
+@router.get("/tracks/{item_id}/artwork")
+async def get_track_artwork(item_id: str, session: AsyncSession = Depends(get_session)) -> Response:
+    item = await session.get(HistoryItem, item_id)
+    if item is None or item.kind != "track":
+        raise HTTPException(status_code=404, detail="Track not found")
+    try:
+        from mutagen.flac import FLAC
+
+        pictures = FLAC(Path(item.path)).pictures
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail="Track artwork not found") from exc
+    if not pictures:
+        raise HTTPException(status_code=404, detail="Track artwork not found")
+    picture = pictures[0]
+    return Response(
+        content=picture.data,
+        media_type=picture.mime or "application/octet-stream",
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
 
 
 @router.post("/videos", response_model=Job, status_code=201)

@@ -145,6 +145,26 @@ export function useReviewTrack() {
   });
 }
 
+export function useRegenerateTrack() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.regenerateTrack(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.jobs }),
+  });
+}
+
+export function useSetTrackArtwork() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) => api.setTrackArtwork(id, file),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: keys.tracks }),
+        qc.invalidateQueries({ queryKey: keys.history }),
+      ]),
+  });
+}
+
 export function useMakeVideo() {
   const qc = useQueryClient();
   return useMutation({

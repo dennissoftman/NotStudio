@@ -93,6 +93,7 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
         return {"cancelled": True}
     prompts = list(params.get("prompts") or [])
     album = dict(params.get("album") or {})
+    replacement_item_id = params.get("replacement_item_id")
     provider = params.get("provider") or settings.default_music_provider
     model = "medium"
     sr, ch = settings.sample_rate, settings.channels
@@ -142,29 +143,68 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
         for spec, path_value in produced:
             path = Path(path_value)
             info = await asyncio.to_thread(dsp.audio_file_info, str(path))
-            item = HistoryItem(
-                kind="track",
-                title=spec.get("title", "Track"),
-                job_id=job_id,
-                path=str(path),
-                sample_rate=info["sample_rate"],
-                channels=info["channels"],
-                duration_seconds=info["duration_seconds"],
-                size_bytes=path.stat().st_size if path.exists() else 0,
-                meta={
-                    "prompt": spec.get("prompt", ""),
-                    "genre": spec.get("genre", ""),
-                    "provider": provider,
-                    "album": album,
-                    "mood": spec.get("mood") or album.get("mood"),
-                    "styles": spec.get("styles") or album.get("styles") or [],
-                    "review": {"verdict": "unreviewed"},
-                },
-            )
+            old_path: Path | None = None
+            if replacement_item_id:
+                item = await session.get(HistoryItem, replacement_item_id)
+                if item is None or item.kind != "track":
+                    path.unlink(missing_ok=True)
+                    raise RuntimeError("Track selected for regeneration no longer exists")
+                old_path = Path(item.path)
+                if (item.meta or {}).get("artwork") and old_path.is_file():
+                    await asyncio.to_thread(dsp.copy_flac_pictures, old_path, path)
+                meta = dict(item.meta or {})
+                meta.update(
+                    {
+                        "prompt": spec.get("prompt", ""),
+                        "genre": spec.get("genre", ""),
+                        "notes": spec.get("notes"),
+                        "artwork_prompt": spec.get("artwork_prompt"),
+                        "provider": provider,
+                        "album": album or meta.get("album", {}),
+                        "mood": spec.get("mood") or album.get("mood") or meta.get("mood"),
+                        "styles": spec.get("styles")
+                        or album.get("styles")
+                        or meta.get("styles", []),
+                        "review": {"verdict": "unreviewed"},
+                    }
+                )
+                item.title = spec.get("title", item.title)
+                item.job_id = job_id
+                item.path = str(path)
+                item.sample_rate = info["sample_rate"]
+                item.channels = info["channels"]
+                item.duration_seconds = info["duration_seconds"]
+                item.size_bytes = path.stat().st_size if path.exists() else 0
+                item.meta = meta
+                item.created_at = utcnow()
+            else:
+                item = HistoryItem(
+                    kind="track",
+                    title=spec.get("title", "Track"),
+                    job_id=job_id,
+                    path=str(path),
+                    sample_rate=info["sample_rate"],
+                    channels=info["channels"],
+                    duration_seconds=info["duration_seconds"],
+                    size_bytes=path.stat().st_size if path.exists() else 0,
+                    meta={
+                        "prompt": spec.get("prompt", ""),
+                        "genre": spec.get("genre", ""),
+                        "notes": spec.get("notes"),
+                        "artwork_prompt": spec.get("artwork_prompt"),
+                        "provider": provider,
+                        "album": album,
+                        "mood": spec.get("mood") or album.get("mood"),
+                        "styles": spec.get("styles") or album.get("styles") or [],
+                        "review": {"verdict": "unreviewed"},
+                    },
+                )
             session.add(item)
             await session.commit()
             await session.refresh(item)
             track_ids.append(item.id)
+            if old_path is not None and old_path != path:
+                old_path.unlink(missing_ok=True)
 
     await update_job(
         job_id,
@@ -172,7 +212,7 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
         progress=1.0,
         message=f"Generated {len(track_ids)} track(s)",
         finished_at=utcnow(),
-        result={"track_ids": track_ids},
+        result={"track_ids": track_ids, "replacement_item_id": replacement_item_id},
     )
     return {"track_ids": track_ids}
 

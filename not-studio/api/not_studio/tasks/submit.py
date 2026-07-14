@@ -20,11 +20,18 @@ async def submit_generate_tracks(
     provider: str | None = None,
     model: str | None = None,
     album: dict | None = None,
+    replacement_item_id: str | None = None,
 ) -> Job:
     job = Job(
         type="generate_tracks",
         status="queued",
-        params={"prompts": prompts, "provider": provider, "model": model, "album": album or {}},
+        params={
+            "prompts": prompts,
+            "provider": provider,
+            "model": model,
+            "album": album or {},
+            "replacement_item_id": replacement_item_id,
+        },
         enqueued_at=utcnow(),
     )
     return await _submit(session, job, generate_tracks_job)
