@@ -18,15 +18,28 @@ def safe_filename(value: str, fallback: str) -> str:
     return cleaned[:120] or fallback
 
 
-def album_cue(album_title: str, filenames: list[str], titles: list[str]) -> str:
+def cue_duration(seconds: float) -> str:
+    total_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def album_cue(
+    album_title: str,
+    filenames: list[str],
+    titles: list[str],
+    durations: list[float],
+) -> str:
     lines = [f'TITLE "{album_title.replace(chr(34), chr(39))}"']
-    for index, (filename, title) in enumerate(zip(filenames, titles), start=1):
+    for index, (filename, title, duration) in enumerate(zip(filenames, titles, durations), start=1):
         lines.extend(
             [
                 f'FILE "{filename}" WAVE',
                 f"  TRACK {index:02d} AUDIO",
                 f'    TITLE "{title.replace(chr(34), chr(39))}"',
                 "    INDEX 01 00:00:00",
+                f"    DURATION {cue_duration(duration)}",
             ]
         )
     return "\n".join(lines) + "\n"
@@ -36,6 +49,7 @@ def create_album_archive(album_title: str, items: list[HistoryItem], destination
     """Copy tracks, apply album metadata, and package them with a multi-file CUE."""
     total = len(items)
     archive_names: list[str] = []
+    durations: list[float] = []
     with tempfile.TemporaryDirectory(prefix="not-studio-album-") as temp_value:
         temp_dir = Path(temp_value)
         for index, item in enumerate(items, start=1):
@@ -53,9 +67,15 @@ def create_album_archive(album_title: str, items: list[HistoryItem], destination
             audio["discnumber"] = "1"
             audio.save()
             archive_names.append(archive_name)
+            durations.append(float(audio.info.length))
 
         cue_name = f"{safe_filename(album_title, 'album')}.cue"
-        cue = album_cue(album_title, archive_names, [item.title for item in items])
+        cue = album_cue(
+            album_title,
+            archive_names,
+            [item.title for item in items],
+            durations,
+        )
         with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_STORED) as archive:
             for archive_name in archive_names:
                 archive.write(temp_dir / archive_name, archive_name)

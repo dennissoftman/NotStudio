@@ -47,6 +47,7 @@ export default function Mix() {
   const del = useDeleteHistory();
   const [mode, setMode] = useState<MixMode>("album");
   const [selected, setSelected] = useState<string[]>([]);
+  const [loadedAlbum, setLoadedAlbum] = useState("");
   const [albumTitle, setAlbumTitle] = useState("");
   const [exportingAlbum, setExportingAlbum] = useState(false);
   const [background, setBackground] = useState<File | null>(null);
@@ -65,6 +66,10 @@ export default function Mix() {
     const byId = new Map((tracks ?? []).map((track) => [track.id, track]));
     return selected.map((id) => byId.get(id)).filter((track): track is HistoryItem => Boolean(track));
   }, [selected, tracks]);
+  const visibleTracks = useMemo(
+    () => (loadedAlbum ? orderedAlbumTracks(tracks ?? [], loadedAlbum) : tracks ?? []),
+    [loadedAlbum, tracks],
+  );
   const videoJobs = (jobs ?? []).filter((job) => job.type === "make_video").slice(0, 4);
 
   useEffect(() => {
@@ -92,6 +97,7 @@ export default function Mix() {
   }
 
   function loadAlbum(title: string) {
+    setLoadedAlbum(title);
     if (!title) return;
     setSelected(orderedAlbumTracks(tracks ?? [], title).map((track) => track.id));
     setAlbumTitle(title);
@@ -168,29 +174,34 @@ export default function Mix() {
         ))}
       </div>
 
-      <Card>
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <label className="min-w-0 sm:w-72">
-            <span className="label">Load an album</span>
-            <select className="input" defaultValue="" onChange={(event) => loadAlbum(event.target.value)}>
-              <option value="">Choose an album…</option>
-              {albums.map((album) => (
-                <option key={album} value={album}>
-                  {album} ({orderedAlbumTracks(tracks ?? [], album).length} tracks)
-                </option>
-              ))}
-            </select>
-          </label>
-          <span className="text-sm text-slate-500">
-            {selected.length} track{selected.length === 1 ? "" : "s"} in queue
-          </span>
-        </div>
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.75fr)]">
+        <Card>
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <label className="min-w-0 sm:w-72">
+              <span className="label">Load an album</span>
+              <select
+                className="input"
+                value={loadedAlbum}
+                onChange={(event) => loadAlbum(event.target.value)}
+              >
+                <option value="">All tracks</option>
+                {albums.map((album) => (
+                  <option key={album} value={album}>
+                    {album} ({orderedAlbumTracks(tracks ?? [], album).length} tracks)
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="text-sm text-slate-500">
+              {selected.length} track{selected.length === 1 ? "" : "s"} in queue
+            </span>
+          </div>
 
         {(tracks?.length ?? 0) === 0 ? (
           <Empty>No tracks available to mix yet.</Empty>
         ) : (
           <div className="grid gap-2">
-            {(tracks ?? []).map((track) => {
+            {visibleTracks.map((track) => {
               const index = selected.indexOf(track.id);
               return (
                 <div
@@ -225,17 +236,18 @@ export default function Mix() {
             })}
           </div>
         )}
-      </Card>
+        </Card>
 
-      {selectedTracks.length > 0 && (
-        <Card>
+      <div className="space-y-4 lg:sticky lg:top-4">
+        {selectedTracks.length > 0 && (
+          <Card>
           <div className="mb-2 flex items-center justify-between">
             <h3 className="font-medium text-slate-100">Mix order</h3>
             <button className="btn-ghost !text-xs" onClick={() => setSelected([])}>
               Clear
             </button>
           </div>
-          <div className="space-y-1.5">
+          <div className="max-h-[52vh] space-y-1.5 overflow-y-auto pr-1">
             {selectedTracks.map((track, index) => (
               <div key={track.id} className="flex items-center gap-2 rounded-lg bg-ink-950/70 px-2.5 py-2">
                 <span className="w-5 text-center text-xs font-semibold text-accent-soft">{index + 1}</span>
@@ -259,10 +271,10 @@ export default function Mix() {
               </div>
             ))}
           </div>
-        </Card>
-      )}
+          </Card>
+        )}
 
-      <Card>
+        <Card>
         {mode === "album" ? (
           <div>
             <h3 className="font-medium text-slate-100">Export album</h3>
@@ -334,7 +346,9 @@ export default function Mix() {
           </div>
         )}
         {error && <div className="mt-2 text-sm text-red-400">{error}</div>}
-      </Card>
+        </Card>
+      </div>
+      </div>
 
       {videoJobs.length > 0 && (
         <div className="grid gap-2">

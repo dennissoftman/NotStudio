@@ -9,6 +9,7 @@ import httpx
 import numpy as np
 import soundfile as sf
 
+from not_studio.album_export import cue_duration
 from not_studio.backends import runpod_stable_audio
 from not_studio.backends import stable_audio
 from not_studio.config import get_settings
@@ -19,6 +20,10 @@ from not_studio.schemas import GenerateAlbumRequest
 from not_studio.tasks import jobs as jobs_module
 from not_studio.main import app
 from starlette.testclient import TestClient
+
+
+def test_cue_duration_uses_zero_padded_hours_minutes_and_seconds():
+    assert cue_duration(3661.6) == "01:01:02"
 
 
 def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
@@ -578,8 +583,10 @@ def test_album_export_downloads_ordered_tagged_flacs_and_cue(tmp_path):
         assert 'TITLE "City Signals"' in cue
         assert 'FILE "01 - Night Drive.flac" WAVE' in cue
         assert "  TRACK 01 AUDIO" in cue
+        assert "    INDEX 01 00:00:00\n    DURATION 00:00:00" in cue
         assert 'FILE "02 - Opening - Light.flac" WAVE' in cue
         assert "  TRACK 02 AUDIO" in cue
+        assert cue.count("    DURATION 00:00:00") == 2
         archive.extract("01 - Night Drive.flac", tmp_path / "extracted")
         archive.extract("02 - Opening - Light.flac", tmp_path / "extracted")
 
