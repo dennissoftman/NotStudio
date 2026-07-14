@@ -17,12 +17,14 @@ export interface PromptSpec {
   genre: string;
   prompt: string;
   duration: number;
+  album_title?: string | null;
+  album?: Record<string, unknown> | string | null;
   notes?: string | null;
   artwork_prompt?: string | null;
 }
 
 export interface PromptPlan {
-  album_title: string;
+  album_title?: string | null;
   notes?: string | null;
   artwork_prompt?: string | null;
   prompts: PromptSpec[];

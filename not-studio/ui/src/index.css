@@ -58,7 +58,7 @@
     @apply border-accent bg-accent/20 text-accent-soft;
   }
   .audio-player {
-    @apply flex min-w-64 max-w-full items-center gap-2 rounded-full border border-ink-600 bg-ink-950 px-2 py-1 text-slate-100 shadow-inner;
+    @apply flex min-w-48 max-w-full items-center gap-2 rounded-full border border-ink-600 bg-ink-950 px-2 py-1 text-slate-100 shadow-inner;
   }
   .audio-player-button {
     @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-soft;

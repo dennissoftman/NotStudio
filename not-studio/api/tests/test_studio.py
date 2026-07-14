@@ -253,6 +253,49 @@ def test_prompt_plan_generation_rejects_legacy_top_level_list():
     assert response.status_code == 422
 
 
+async def test_prompt_album_data_overrides_plan_album_when_tracks_are_saved(tmp_path, monkeypatch):
+    track_path = tmp_path / "custom-album.flac"
+    sf.write(track_path, np.zeros((441, 2)), 44100)
+    spec = {
+        "title": "Standalone Cut",
+        "genre": "ambient techno",
+        "prompt": "A restrained night pulse",
+        "duration": 15,
+        "album_title": "Custom Singles",
+        "album": {"notes": "A manually grouped release."},
+    }
+
+    async with session_scope() as session:
+        job = Job(
+            type="generate_tracks",
+            status="queued",
+            params={
+                "prompts": [spec],
+                "provider": "stable_audio_local",
+                "album": {"title": "LLM Default", "notes": "Generated plan."},
+            },
+        )
+        session.add(job)
+        await session.commit()
+        await session.refresh(job)
+        job_id = job.id
+
+    async def render(*args, **kwargs):
+        return [(spec, str(track_path))]
+
+    monkeypatch.setattr(jobs_module, "run_in_reusable_process", render)
+    result = await jobs_module.generate_tracks_job(job_id)
+
+    async with session_scope() as session:
+        item = await session.get(HistoryItem, result["track_ids"][0])
+
+    assert item is not None
+    assert item.meta["album"] == {
+        "title": "Custom Singles",
+        "notes": "A manually grouped release.",
+    }
+
+
 def test_track_review_updates_history_item_metadata():
     async def create_track() -> str:
         async with session_scope() as session:

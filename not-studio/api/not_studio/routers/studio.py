@@ -151,11 +151,11 @@ async def generate(
         raise HTTPException(status_code=400, detail="Provide at least one prompt")
     return await submit_generate_tracks(
         session,
-        prompts=[p.model_dump() for p in payload.prompts],
+        prompts=[p.model_dump(exclude_none=True) for p in payload.prompts],
         provider=payload.provider,
         model=payload.model,
         album={
-            "title": payload.album_title.strip(),
+            "title": payload.album_title.strip() if payload.album_title else "",
             "notes": payload.notes.strip() if payload.notes else None,
             "artwork_prompt": payload.artwork_prompt.strip() if payload.artwork_prompt else None,
             "track_count": len(payload.prompts),

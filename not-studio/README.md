@@ -74,10 +74,12 @@ npm run build
 
 Not Studio does not run an embedded LLM. The UI exposes a copyable GPT prompt
 kit containing the exact JSON schema, an example, and up to 20 recent liked
-prompts. The top-level object requires `album_title` and a `prompts` list, with
-optional `notes` and `artwork_prompt` fields for album and future cover-art
-direction. Every prompt item requires `title`, `genre`, `prompt`, and `duration`.
-Prompt items may also carry their own `notes` and `artwork_prompt` for track icons.
+prompts. The top-level object requires a `prompts` list; its `album_title`,
+`notes`, and `artwork_prompt` fields provide defaults for the generated album.
+Every prompt item requires `title`, `genre`, `prompt`, and `duration`. A prompt
+may override the default grouping with `album_title` or an `album` object, which
+lets one JSON plan create custom albums. Prompt items may also carry their own
+`notes` and `artwork_prompt` for track icons.
 The Generate page also keeps a browser-saved `artwork_guidance` value in the
 copied GPT prompt kit for persistent visual style and constraint instructions.
 After reviews change, copying the kit again includes the new taste signals automatically.

@@ -31,11 +31,11 @@ function storedArtworkGuidance(): string {
 function parsePromptPlan(value: string): PromptPlan {
   const parsed: unknown = JSON.parse(value);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Top level must be an object with album_title and prompts");
+    throw new Error("Top level must be an object with prompts");
   }
   const source = parsed as Record<string, unknown>;
-  if (typeof source.album_title !== "string" || !source.album_title.trim()) {
-    throw new Error("Album plan needs an album_title");
+  if (source.album_title != null && (typeof source.album_title !== "string" || !source.album_title.trim())) {
+    throw new Error("album_title must be a non-empty string when provided");
   }
   if (!Array.isArray(source.prompts) || source.prompts.length === 0) {
     throw new Error("Album plan needs a non-empty prompts list");
@@ -52,6 +52,16 @@ function parsePromptPlan(value: string): PromptPlan {
     if (typeof track.title !== "string" || !track.title.trim()) throw new Error(`Track ${index + 1} needs a title`);
     if (typeof track.genre !== "string" || !track.genre.trim()) throw new Error(`Track ${index + 1} needs a genre`);
     if (typeof track.prompt !== "string" || !track.prompt.trim()) throw new Error(`Track ${index + 1} needs a prompt`);
+    if (track.album_title != null && (typeof track.album_title !== "string" || !track.album_title.trim())) {
+      throw new Error(`Track ${index + 1} album_title must be a non-empty string when provided`);
+    }
+    if (
+      track.album != null &&
+      (typeof track.album !== "string" || !track.album.trim()) &&
+      (typeof track.album !== "object" || Array.isArray(track.album))
+    ) {
+      throw new Error(`Track ${index + 1} album must be a title or object when provided`);
+    }
     for (const key of ["notes", "artwork_prompt"] as const) {
       if (track[key] != null && typeof track[key] !== "string") {
         throw new Error(`Track ${index + 1} ${key} must be a string when provided`);
@@ -61,12 +71,14 @@ function parsePromptPlan(value: string): PromptPlan {
     if (!Number.isFinite(duration) || duration < 15 || duration > 900) throw new Error(`Track ${index + 1} duration must be 15–900 seconds`);
     const notes = typeof track.notes === "string" ? track.notes.trim() : "";
     const artworkPrompt = typeof track.artwork_prompt === "string" ? track.artwork_prompt.trim() : "";
+    const albumTitle = typeof track.album_title === "string" ? track.album_title.trim() : "";
     return {
       ...track,
       title: track.title.trim(),
       genre: track.genre.trim(),
       prompt: track.prompt.trim(),
       duration,
+      ...(albumTitle ? { album_title: albumTitle } : {}),
       ...(notes ? { notes } : {}),
       ...(artworkPrompt ? { artwork_prompt: artworkPrompt } : {}),
     } as PromptSpec;
@@ -74,7 +86,7 @@ function parsePromptPlan(value: string): PromptPlan {
   const notes = typeof source.notes === "string" ? source.notes.trim() : "";
   const artworkPrompt = typeof source.artwork_prompt === "string" ? source.artwork_prompt.trim() : "";
   return {
-    album_title: source.album_title.trim(),
+    ...(typeof source.album_title === "string" ? { album_title: source.album_title.trim() } : {}),
     ...(notes ? { notes } : {}),
     ...(artworkPrompt ? { artwork_prompt: artworkPrompt } : {}),
     prompts,
@@ -191,7 +203,8 @@ export default function Generate() {
         <div>
           <h3 className="font-medium text-slate-100">Prompt plan JSON</h3>
           <p className="text-xs text-slate-500">
-            Required: album_title and prompts. Optional: notes and artwork_prompt. Your draft is saved in this browser.
+            Required: prompts. A plan album_title is optional; each prompt can set album_title or album.
+            Your draft is saved in this browser.
           </p>
         </div>
         <Field label="Audio engine">
@@ -206,12 +219,12 @@ export default function Generate() {
         value={promptJson}
         onChange={(event) => setPromptJson(event.target.value)}
         spellCheck={false}
-        placeholder={'{\n  "album_title": "Glass Transit",\n  "notes": "A nocturnal album arc",\n  "artwork_prompt": "Square abstract glass album cover, no text",\n  "prompts": [\n    {\n      "title": "Last Platform",\n      "genre": "ambient techno",\n      "prompt": "Instrumental…",\n      "duration": 180,\n      "notes": "Quiet opening track",\n      "artwork_prompt": "Empty glass platform at night, no text"\n    }\n  ]\n}'}
+        placeholder={'{\n  "album_title": "Glass Transit",\n  "notes": "A nocturnal album arc",\n  "artwork_prompt": "Square abstract glass album cover, no text",\n  "prompts": [\n    {\n      "title": "Last Platform",\n      "genre": "ambient techno",\n      "prompt": "Instrumental…",\n      "duration": 180,\n      "album_title": "Custom Singles",\n      "notes": "Quiet opening track",\n      "artwork_prompt": "Empty glass platform at night, no text"\n    }\n  ]\n}'}
       />
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {plan.prompts.length > 0 && <>
-            <Badge tone="violet">{plan.value?.album_title}</Badge>
+            {plan.value?.album_title && <Badge tone="violet">{plan.value.album_title}</Badge>}
             <Badge tone="green">{plan.prompts.length} track{plan.prompts.length === 1 ? "" : "s"}</Badge>
             <Badge>{totalMinutes} min total</Badge>
             {plan.value?.artwork_prompt && <Badge tone="amber">cover direction</Badge>}

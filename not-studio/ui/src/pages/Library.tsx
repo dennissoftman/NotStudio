@@ -44,7 +44,7 @@ function TrackArtwork({ track }: { track: HistoryItem }) {
     <>
       <button
         type="button"
-        className="group relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-ink-600 bg-ink-950 text-slate-500 hover:border-accent hover:text-accent-soft"
+      className="group relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-ink-600 bg-ink-950 text-slate-500 hover:border-accent hover:text-accent-soft"
         onClick={() => input.current?.click()}
         disabled={artwork.isPending}
         title={version ? "Replace track artwork" : "Add track artwork"}
@@ -56,7 +56,7 @@ function TrackArtwork({ track }: { track: HistoryItem }) {
             alt=""
           />
         ) : (
-          <ImageIcon className="h-6 w-6" />
+          <ImageIcon className="h-5 w-5" />
         )}
         <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white opacity-0 transition-opacity group-hover:opacity-100">
           {artwork.isPending ? "Saving" : version ? "Replace" : "Add icon"}
@@ -80,7 +80,6 @@ function TrackArtwork({ track }: { track: HistoryItem }) {
 function TrackMeta({ track }: { track: HistoryItem }) {
   const meta = track.meta as Record<string, unknown>;
   const genre = typeof meta.genre === "string" ? meta.genre : "";
-  const prompt = typeof meta.prompt === "string" ? meta.prompt : "";
   const albumTitle = albumTitleOf(track);
 
   return (
@@ -93,7 +92,6 @@ function TrackMeta({ track }: { track: HistoryItem }) {
           {new Date(track.created_at).toLocaleDateString()}
         </span>
       </div>
-      {prompt && <div className="mt-1 truncate text-xs text-slate-500">{prompt}</div>}
     </div>
   );
 }
@@ -115,7 +113,7 @@ function AlbumPicker({
 
   if (creating) {
     return (
-      <div className="flex min-w-52 items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-1.5">
         <input
           className="input !py-1.5"
           value={title}
@@ -146,7 +144,7 @@ function AlbumPicker({
 
   return (
     <select
-      className="input min-w-40 !py-1.5"
+      className="input min-w-32 !py-1.5"
       value={current}
       disabled={pending}
       aria-label={`Album for ${track.title}`}
@@ -253,7 +251,7 @@ export default function Library() {
   ];
 
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <SectionTitle
         title="Library"
         subtitle="Browse every generated track, organize albums, and keep your favorites."
@@ -329,20 +327,11 @@ export default function Library() {
           );
           const albumPending = setAlbum.isPending && setAlbum.variables?.id === track.id;
           return (
-            <Card key={track.id} className="!py-3">
-              <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <TrackArtwork track={track} />
-                  <TrackMeta track={track} />
-                </div>
-                <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                  <AudioPlayer src={api.audioUrl(track.id)} label={track.title} />
-                  <AlbumPicker
-                    track={track}
-                    albums={albums}
-                    pending={albumPending}
-                    onAssign={(title) => assignAlbum(track, title)}
-                  />
+            <Card key={track.id} className="!p-2.5">
+              <div className="grid min-w-0 gap-x-3 gap-y-2 sm:grid-cols-[3rem_minmax(0,1fr)_auto] sm:items-center">
+                <TrackArtwork track={track} />
+                <TrackMeta track={track} />
+                <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
                   <button
                     className={cx("review-button", verdict === "liked" && "review-button-liked")}
                     onClick={() => void setVerdict(track, "liked")}
@@ -389,6 +378,18 @@ export default function Library() {
                   >
                     <TrashIcon className="h-4 w-4" />
                   </button>
+                </div>
+                <div className="flex min-w-0 flex-col gap-2 sm:col-start-2 sm:col-span-2 sm:flex-row sm:items-center">
+                  <AudioPlayer src={api.audioUrl(track.id)} label={track.title} />
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">Album</span>
+                    <AlbumPicker
+                      track={track}
+                      albums={albums}
+                      pending={albumPending}
+                      onAssign={(title) => assignAlbum(track, title)}
+                    />
+                  </div>
                 </div>
               </div>
             </Card>

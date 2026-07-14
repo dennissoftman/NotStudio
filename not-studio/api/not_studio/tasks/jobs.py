@@ -17,6 +17,23 @@ from .events import notify_jobs_changed
 RUNNING_STATUSES = ("queued", "in_progress")
 
 
+def _album_for_spec(spec: dict[str, Any], default: dict[str, Any]) -> dict[str, Any]:
+    """Use prompt-level album data when present, falling back to the plan album."""
+    album = dict(default)
+    specified = spec.get("album")
+    if isinstance(specified, dict):
+        album.update({key: value for key, value in specified.items() if value is not None})
+    elif isinstance(specified, str) and specified.strip():
+        album["title"] = specified.strip()
+
+    title = spec.get("album_title")
+    if isinstance(title, str) and title.strip():
+        album["title"] = title.strip()
+    if not isinstance(album.get("title"), str) or not album["title"].strip():
+        album.pop("title", None)
+    return album
+
+
 async def update_job(job_id: str, **fields: Any) -> None:
     async with session_scope() as session:
         job = await session.get(Job, job_id)
@@ -143,6 +160,7 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
         for spec, path_value in produced:
             path = Path(path_value)
             info = await asyncio.to_thread(dsp.audio_file_info, str(path))
+            track_album = _album_for_spec(spec, album)
             old_path: Path | None = None
             if replacement_item_id:
                 item = await session.get(HistoryItem, replacement_item_id)
@@ -160,10 +178,10 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
                         "notes": spec.get("notes"),
                         "artwork_prompt": spec.get("artwork_prompt"),
                         "provider": provider,
-                        "album": album or meta.get("album", {}),
-                        "mood": spec.get("mood") or album.get("mood") or meta.get("mood"),
+                        "album": track_album or meta.get("album", {}),
+                        "mood": spec.get("mood") or track_album.get("mood") or meta.get("mood"),
                         "styles": spec.get("styles")
-                        or album.get("styles")
+                        or track_album.get("styles")
                         or meta.get("styles", []),
                         "review": {"verdict": "unreviewed"},
                     }
@@ -193,9 +211,9 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
                         "notes": spec.get("notes"),
                         "artwork_prompt": spec.get("artwork_prompt"),
                         "provider": provider,
-                        "album": album,
-                        "mood": spec.get("mood") or album.get("mood"),
-                        "styles": spec.get("styles") or album.get("styles") or [],
+                        "album": track_album,
+                        "mood": spec.get("mood") or track_album.get("mood"),
+                        "styles": spec.get("styles") or track_album.get("styles") or [],
                         "review": {"verdict": "unreviewed"},
                     },
                 )

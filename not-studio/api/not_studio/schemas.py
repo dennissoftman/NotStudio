@@ -23,6 +23,8 @@ class PromptSpec(BaseModel):
     genre: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=1, max_length=4000)
     duration: float = Field(ge=15.0, le=900.0)
+    album_title: str | None = Field(default=None, max_length=160)
+    album: dict[str, Any] | str | None = None
     notes: str | None = Field(default=None, max_length=1000)
     artwork_prompt: str | None = Field(default=None, max_length=2000)
 
@@ -40,7 +42,7 @@ class GenerateAlbumRequest(BaseModel):
 
 class PromptPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    album_title: str = Field(min_length=1, max_length=160)
+    album_title: str | None = Field(default=None, max_length=160)
     notes: str | None = Field(default=None, max_length=2000)
     artwork_prompt: str | None = Field(default=None, max_length=2000)
     prompts: list[PromptSpec] = Field(min_length=1, max_length=20)

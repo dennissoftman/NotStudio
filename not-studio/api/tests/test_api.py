@@ -252,7 +252,7 @@ def test_prompt_kit_exposes_genre_schema_and_review_history():
     assert any("artwork_guidance" in requirement for requirement in body["requirements"])
     top_level_required = body["output_schema"]["required"]
     prompt_required = body["output_schema"]["$defs"]["PromptSpec"]["required"]
-    assert top_level_required == ["album_title", "prompts"]
+    assert top_level_required == ["prompts"]
     assert "genre" in prompt_required
     assert "notes" in body["output_schema"]["$defs"]["PromptSpec"]["properties"]
     assert "artwork_prompt" in body["output_schema"]["$defs"]["PromptSpec"]["properties"]
