@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from PIL import Image, UnidentifiedImageError
 from starlette.background import BackgroundTask
 from starlette.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -112,6 +114,7 @@ async def export_album(
     session: AsyncSession = Depends(get_session),
 ) -> FileResponse:
     """Download selected tracks in order as tagged FLACs plus a multi-file CUE."""
+    settings = get_settings()
     items: list[HistoryItem] = []
     for item_id in payload.item_ids:
         item = await session.get(HistoryItem, item_id)
@@ -128,7 +131,14 @@ async def export_album(
     output.close()
     output_path = Path(output.name)
     try:
-        await asyncio.to_thread(create_album_archive, payload.title.strip(), items, output_path)
+        await asyncio.to_thread(
+            create_album_archive,
+            payload.title.strip(),
+            items,
+            output_path,
+            artist=settings.track_author,
+            cover_path=settings.album_artwork_path(payload.title),
+        )
     except Exception as exc:  # noqa: BLE001
         output_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Could not assemble album: {exc}") from exc
@@ -138,6 +148,47 @@ async def export_album(
         media_type="application/zip",
         filename=filename,
         background=BackgroundTask(output_path.unlink, missing_ok=True),
+    )
+
+
+@router.post("/albums/artwork")
+async def set_album_artwork(
+    title: str = Form(..., min_length=1, max_length=160),
+    file: UploadFile = File(...),
+) -> dict[str, str]:
+    """Store one album cover as PNG, converting supported source formats."""
+    settings = get_settings()
+    mime = (file.content_type or "").lower()
+    if mime not in {"image/jpeg", "image/png", "image/webp"}:
+        raise HTTPException(status_code=400, detail="Use a PNG, JPEG, or WebP image")
+    data = await file.read(10 * 1024 * 1024 + 1)
+    await file.close()
+    if not data:
+        raise HTTPException(status_code=400, detail="Album artwork file is empty")
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Album artwork must be 10 MB or smaller")
+
+    destination = settings.album_artwork_path(title)
+    try:
+        with Image.open(io.BytesIO(data)) as source:
+            source.load()
+            image = source.convert("RGBA" if "A" in source.getbands() else "RGB")
+            image.save(destination, format="PNG", optimize=True)
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Could not read album artwork: {exc}") from exc
+    return {"title": title.strip(), "updated_at": datetime.now(UTC).isoformat()}
+
+
+@router.get("/albums/artwork")
+async def get_album_artwork(title: str = Query(min_length=1, max_length=160)) -> FileResponse:
+    path = get_settings().album_artwork_path(title)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Album artwork not found")
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
     )
 
 

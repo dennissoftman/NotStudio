@@ -1,4 +1,6 @@
+import os
 import warnings
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -83,8 +85,14 @@ def write_audio_file(
 
 def tag_flac(path, title, genre=None, prompt=None, track_number=None):
     """Write FLAC metadata tags, skipping any that are not provided."""
+    release_date = datetime.now(UTC).date().isoformat()
     audio = FLAC(path)
     audio["title"] = title
+    audio["artist"] = (
+        os.getenv("NOT_STUDIO_TRACK_AUTHOR", "Not Studio").strip() or "Not Studio"
+    )
+    audio["date"] = release_date
+    audio["year"] = release_date[:4]
     if genre:
         audio["genre"] = genre
     if prompt:

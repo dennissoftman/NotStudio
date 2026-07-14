@@ -6,6 +6,7 @@ import re
 import shutil
 import tempfile
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mutagen.flac import FLAC
@@ -45,7 +46,14 @@ def album_cue(
     return "\n".join(lines) + "\n"
 
 
-def create_album_archive(album_title: str, items: list[HistoryItem], destination: Path) -> None:
+def create_album_archive(
+    album_title: str,
+    items: list[HistoryItem],
+    destination: Path,
+    *,
+    artist: str = "Not Studio",
+    cover_path: Path | None = None,
+) -> None:
     """Copy tracks, apply album metadata, and package them with a multi-file CUE."""
     total = len(items)
     archive_names: list[str] = []
@@ -65,6 +73,10 @@ def create_album_archive(album_title: str, items: list[HistoryItem], destination
             audio["tracknumber"] = f"{index}/{total}"
             audio["tracktotal"] = str(total)
             audio["discnumber"] = "1"
+            release_date = (audio.get("date") or [datetime.now(UTC).date().isoformat()])[0]
+            audio["artist"] = artist
+            audio["date"] = release_date
+            audio["year"] = release_date[:4]
             audio.save()
             archive_names.append(archive_name)
             durations.append(float(audio.info.length))
@@ -79,4 +91,6 @@ def create_album_archive(album_title: str, items: list[HistoryItem], destination
         with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_STORED) as archive:
             for archive_name in archive_names:
                 archive.write(temp_dir / archive_name, archive_name)
+            if cover_path is not None and cover_path.is_file():
+                archive.write(cover_path, f"{safe_filename(album_title, 'album')}.png")
             archive.writestr(cue_name, cue)

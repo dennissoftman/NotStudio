@@ -8,6 +8,7 @@ resample through their own pipelines and hand us target-rate audio.
 from __future__ import annotations
 
 import warnings
+from datetime import UTC, datetime
 from math import gcd
 from pathlib import Path
 
@@ -219,21 +220,45 @@ def write_audio_file(
     genre: str | None = None,
     description: str | None = None,
     track_number: int | None = None,
+    artist: str | None = None,
+    release_date: str | None = None,
 ) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(path, as_2d(data), sample_rate)
 
-    if path.suffix.lower() != ".flac" or not any(
-        (title, genre, description, track_number is not None)
-    ):
+    if path.suffix.lower() != ".flac":
         return
+
+    tag_flac(
+        path,
+        title=title,
+        genre=genre,
+        description=description,
+        track_number=track_number,
+        artist=artist,
+        release_date=release_date,
+    )
+
+
+def tag_flac(
+    path: str | Path,
+    *,
+    title: str | None = None,
+    genre: str | None = None,
+    description: str | None = None,
+    track_number: int | None = None,
+    artist: str | None = None,
+    release_date: str | None = None,
+) -> None:
+    """Apply standard track tags, including an ISO release date and its year."""
 
     try:
         from mutagen.flac import FLAC
     except ImportError:
         return
 
+    date = release_date or datetime.now(UTC).date().isoformat()
     audio = FLAC(path)
     if title:
         audio["title"] = title
@@ -243,6 +268,10 @@ def write_audio_file(
         audio["description"] = description
     if track_number is not None:
         audio["tracknumber"] = str(track_number)
+    if artist:
+        audio["artist"] = artist
+    audio["date"] = date
+    audio["year"] = date[:4]
     audio.save()
 
 

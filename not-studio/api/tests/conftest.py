@@ -8,5 +8,4 @@ import os
 import tempfile
 
 os.environ.setdefault("NOT_STUDIO_DATA_DIR", tempfile.mkdtemp(prefix="not-studio-test-"))
-os.environ.setdefault("NOT_STUDIO_DEFAULT_MUSIC_PROVIDER", "stable_audio_local")
 os.environ.setdefault("NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP", "false")

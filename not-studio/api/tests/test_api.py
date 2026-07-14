@@ -16,7 +16,6 @@ from not_studio.models import HistoryItem, Job
 async def test_startup_preloads_model_in_generation_worker(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "preload_local_model_on_startup", True)
-    monkeypatch.setattr(settings, "default_music_provider", "stable_audio_local")
     calls: list[tuple[str, str]] = []
 
     async def run_in_worker(name, func, model):
@@ -70,7 +69,6 @@ async def test_lifespan_does_not_wait_for_model_preload(monkeypatch):
 async def test_model_preload_failure_does_not_escape(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "preload_local_model_on_startup", True)
-    monkeypatch.setattr(settings, "default_music_provider", "stable_audio_local")
 
     async def fail_in_worker(*args, **kwargs):
         raise RuntimeError("model unavailable")
@@ -96,7 +94,7 @@ def test_health_reports_music_providers():
         assert health["jobs"] == "local-background"
         assert health["model"]["status"] == "disabled"
         providers = {p["provider"]: p for p in health["providers"]}
-        assert set(providers) == {"stable_audio_local", "stable_audio_runpod"}
+        assert set(providers) == {"stable_audio_local"}
 
 
 def test_jobs_websocket_sends_initial_snapshot():

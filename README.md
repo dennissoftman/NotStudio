@@ -10,8 +10,7 @@ taste feedback, track ordering, and YouTube-ready MP4 rendering.
 1. Copy the live prompt kit from the Generate page. It includes the JSON schema
    and up to 20 recent liked and disliked examples.
 2. Ask GPT for a JSON track plan, then paste that plan into Not Studio.
-3. Generate up to 20 tracks with Stable Audio 3 Medium, either locally or on
-   RunPod.
+3. Generate up to 20 tracks locally with Stable Audio 3 Medium.
 4. Listen to the tracks, mark them liked or disliked, and copy the refreshed
    prompt kit for the next batch.
 5. Select tracks in playback order, upload a looping video, and render a
@@ -26,8 +25,7 @@ job snapshots over `/api/jobs/ws`, and only one track preview plays at a time.
 .
 ├── not-studio/
 │   ├── api/          # FastAPI API, SQLite state, jobs, audio, and video export
-│   ├── ui/           # React, TypeScript, Vite, Tailwind, and Howler playback
-│   └── runpod/       # Stable Audio RunPod Serverless worker
+│   └── ui/           # React, TypeScript, Vite, Tailwind, and Howler playback
 ├── stable-audio-3/   # local Stable Audio 3 package used by the API
 └── pyproject.toml    # repository-level engine/development environment
 ```
@@ -42,8 +40,7 @@ package through a local path dependency.
 - [`uv`](https://docs.astral.sh/uv/)
 - Node.js and npm
 - FFmpeg on `PATH` for video validation and rendering
-- Access to `stabilityai/stable-audio-3-medium` for local generation, or a
-  configured RunPod endpoint
+- Access to `stabilityai/stable-audio-3-medium` for local generation
 
 ## Quick start
 
@@ -106,11 +103,9 @@ npm run build
 ## Documentation
 
 - [`not-studio/README.md`](not-studio/README.md) — product behavior, media
-  export, providers, and configuration
+  export, and configuration
 - [`not-studio/api/README.md`](not-studio/api/README.md) — API launcher and
   runtime behavior
-- [`not-studio/runpod/README.md`](not-studio/runpod/README.md) — RunPod worker
-  deployment and binary storage contract
 
 ## License
 

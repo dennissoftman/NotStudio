@@ -70,6 +70,8 @@ def generate_batch(
     sample_rate: int,
     model: str,
     out_dir: Path,
+    artist: str = "Not Studio",
+    release_date: str | None = None,
     on_progress: Callable[[float, str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> list[tuple[dict[str, Any], Path]]:
@@ -108,6 +110,8 @@ def generate_batch(
             genre=spec.get("genre"),
             description=prompt,
             track_number=index,
+            artist=artist,
+            release_date=release_date,
         )
         produced.append((spec, path))
         if on_progress:

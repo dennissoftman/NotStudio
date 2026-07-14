@@ -22,10 +22,11 @@ on album batches, taste review, regeneration, and mix rendering.
 | Human review state | `/api/studio/tracks/{id}/review` |
 | In-place track regeneration | `/api/studio/tracks/{id}/regenerate` |
 | Embedded FLAC artwork | `/api/studio/tracks/{id}/artwork` |
+| Album cover upload | `/api/studio/albums/artwork` |
 | Album ZIP + CUE export | `/api/studio/albums/export` |
 | Track history/playback | `/api/studio/tracks`, `/api/history/{id}/audio` |
 | Mix/video rendering | `/api/studio/videos`, `/api/studio/video-backgrounds` |
-| Music providers | Local Stable Audio and RunPod Stable Audio |
+| Music generation | Local Stable Audio 3 Medium |
 
 ## Layout
 
@@ -33,12 +34,11 @@ on album batches, taste review, regeneration, and mix rendering.
 not-studio/
 ├── api/
 │   └── not_studio/
-│       ├── backends/      # local + RunPod Stable Audio adapters
+│       ├── backends/      # local Stable Audio adapter
 │       ├── audio/         # DSP helpers
 │       ├── routers/       # REST API
 │       ├── tasks/         # local background jobs
 │       └── video_export.py
-├── runpod/                # deployable Stable Audio batch worker
 └── ui/                    # React + Vite + TypeScript UI
 ```
 
@@ -89,10 +89,11 @@ After reviews change, copying the kit again includes the new taste signals autom
 The Library lists every generated track with search, album tabs, and sorting by
 generation date, name, or album. Assign a track to an existing album, create a
 new album from its card, or return it to Unfiled. The Mix page loads an album
-into an editable ordered queue. Album export downloads a ZIP containing numbered
-FLAC copies, embedded cover artwork, album and track-number metadata, and a
-multi-file CUE sheet. Export only modifies the copies inside the ZIP; library
-files remain unchanged.
+into an editable ordered queue. An album tab can store a dedicated cover from a
+PNG, JPEG, or WebP upload. Album export downloads a ZIP containing numbered
+FLAC copies, the cover as `<album name>.png`, album and track-number metadata,
+and a multi-file CUE sheet. Export only modifies the copies inside the ZIP;
+library files remain unchanged.
 
 ## Mix export
 
@@ -116,14 +117,15 @@ Track previews use a custom Howler player backed by HTML5 audio streaming, with
 play, pause, seek, elapsed time, and one-active-track coordination. Rendered
 mixes use the browser's native video controls.
 
-Library cards can embed optional PNG, JPEG, or WebP cover artwork directly in
-the generated FLAC. The same card downloads the FLAC with that artwork intact.
+Library cards show track artwork at card height. Clicking the artwork opens a
+large preview; PNG, JPEG, or WebP artwork can still be embedded directly in the
+generated FLAC and replaced from the card.
 
 ## Audio Generation
 
 `Stable Audio / Local` runs directly in a cancellable, persistent API worker
-process using the checked-out `stable-audio-3` package. When it is the default
-provider, the API starts immediately and loads the Medium model asynchronously
+process using the checked-out `stable-audio-3` package. The API starts
+immediately and loads the Medium model asynchronously
 in that worker. `/api/health` reports `status: ok` throughout and exposes the
 model state as `loading`, `ready`, or `failed`; the sidebar mirrors that state.
 A generation submitted during warmup waits for the same worker, then reuses the
@@ -132,67 +134,5 @@ health endpoint. Set `NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP=false` only when
 a cold local worker is intentional. For UI-only debugging, use
 `uv run dev --no-model` (the same flag also works with `uv run prod`).
 
-`Stable Audio / RunPod` sends the entire batch to one RunPod Serverless
-`/runsync` request. The worker writes FLAC files to an attached network volume;
-the API downloads those files as binary streams through RunPod's S3-compatible
-API.
-
-```env
-NOT_STUDIO_RUNPOD_ENDPOINT_ID=your-endpoint-id
-NOT_STUDIO_RUNPOD_API_KEY=your-api-key
-NOT_STUDIO_RUNPOD_VOLUME_ID=your-network-volume-id
-NOT_STUDIO_RUNPOD_S3_ENDPOINT_URL=https://s3api-EU-RO-1.runpod.io
-NOT_STUDIO_RUNPOD_S3_ACCESS_KEY_ID=your-s3-access-key
-NOT_STUDIO_RUNPOD_S3_SECRET_ACCESS_KEY=your-s3-secret
-NOT_STUDIO_RUNPOD_S3_REGION=EU-RO-1
-```
-
-RunPod's Serverless job API accepts and returns JSON, so it cannot return a raw
-FLAC response body. Returning base64 would add about 33% overhead and retain
-large audio in the job result. Network-volume storage keeps the job response
-small while the API transfers the actual bytes directly.
-
-Build the worker from the repository root:
-
-```bash
-docker build -f not-studio/runpod/Dockerfile -t not-studio-stable-audio .
-```
-
-In RunPod:
-
-1. Create a network volume in a datacenter with S3 API support.
-2. Attach that volume to the Serverless endpoint.
-3. Create a RunPod secret containing a Hugging Face token that can access the
-   Stable Audio 3 model.
-4. Set the worker environment variable
-   `HF_TOKEN={{ RUNPOD_SECRET_huggingface_token }}`.
-
-The token stays inside the worker. Not Studio does not send it in generation
-requests or store it in its local configuration.
-
-The endpoint input remains JSON:
-
-```json
-{
-  "input": {
-    "prompts": [{"title": "Track 01", "genre": "deep house", "prompt": "...", "duration": 180}],
-    "model": "medium",
-    "sample_rate": 44100
-  }
-}
-```
-
-The small JSON response references the binary files:
-
-```json
-{
-  "tracks": [
-    {
-      "title": "Track 01",
-      "storage_key": "not-studio/RUNPOD_JOB_ID/01-track-01.flac"
-    }
-  ]
-}
-```
-
-See `runpod/README.md` for deployment and storage setup.
+Generated and exported FLACs include artist, year, and ISO release-date tags.
+Set `NOT_STUDIO_TRACK_AUTHOR` to override the default artist, `Not Studio`.

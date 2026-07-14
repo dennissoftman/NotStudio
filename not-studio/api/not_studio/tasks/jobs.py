@@ -11,7 +11,7 @@ from ..config import get_settings
 from ..constants import utcnow
 from ..db import session_scope
 from ..models import HistoryItem, Job
-from .processes import reusable_process_busy, run_in_process, run_in_reusable_process
+from .processes import reusable_process_busy, run_in_reusable_process
 from .events import notify_jobs_changed
 
 RUNNING_STATUSES = ("queued", "in_progress")
@@ -111,7 +111,7 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
     prompts = list(params.get("prompts") or [])
     album = dict(params.get("album") or {})
     replacement_item_id = params.get("replacement_item_id")
-    provider = params.get("provider") or settings.default_music_provider
+    provider = "stable_audio_local"
     model = "medium"
     sr, ch = settings.sample_rate, settings.channels
     if not prompts:
@@ -119,31 +119,19 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
         return {"error": "no prompts"}
 
     try:
-        if provider == "stable_audio_local":
-            if reusable_process_busy("stable-audio-local"):
-                await update_job(job_id, progress=0.05, message="Queued for local model")
-            produced = await run_in_reusable_process(
-                "stable-audio-local",
-                _render_tracks,
-                job_id,
-                prompts,
-                provider,
-                model,
-                sr,
-                ch,
-                settings.audio_dir,
-            )
-        else:
-            produced = await run_in_process(
-                _render_tracks,
-                job_id,
-                prompts,
-                provider,
-                model,
-                sr,
-                ch,
-                settings.audio_dir,
-            )
+        if reusable_process_busy("stable-audio-local"):
+            await update_job(job_id, progress=0.05, message="Queued for local model")
+        produced = await run_in_reusable_process(
+            "stable-audio-local",
+            _render_tracks,
+            job_id,
+            prompts,
+            provider,
+            model,
+            sr,
+            ch,
+            settings.audio_dir,
+        )
     except asyncio.CancelledError:
         await update_job(job_id, status="cancelled", message="Cancelled", finished_at=utcnow())
         return {"cancelled": True}
@@ -244,12 +232,9 @@ def _render_tracks(
     channels: int,
     audio_dir: Path,
 ) -> list[tuple[dict[str, Any], str]]:
-    if provider == "stable_audio_local":
-        from ..backends.stable_audio import generate_batch
-    elif provider == "stable_audio_runpod":
-        from ..backends.runpod_stable_audio import generate_batch
-    else:
+    if provider != "stable_audio_local":
         raise ValueError(f"Unknown music provider: {provider}")
+    from ..backends.stable_audio import generate_batch
 
     def progress(fraction: float, message: str) -> None:
         asyncio.run(update_job(job_id, progress=fraction, message=message))
@@ -262,6 +247,8 @@ def _render_tracks(
         sample_rate=sample_rate,
         model=model,
         out_dir=audio_dir / f"gen-{job_id}",
+        artist=get_settings().track_author,
+        release_date=utcnow().date().isoformat(),
         on_progress=progress,
         should_cancel=should_cancel,
     )

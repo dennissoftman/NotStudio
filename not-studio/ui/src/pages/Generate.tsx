@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { MusicProvider, PromptPlan, PromptSpec } from "../api/client";
+import type { PromptPlan, PromptSpec } from "../api/client";
 import {
   useCancelJob,
   useDeleteJob,
@@ -10,7 +10,7 @@ import {
   useRetryJob,
 } from "../api/hooks";
 import { CopyIcon, SparklesIcon } from "../components/icons";
-import { Badge, Card, Field, Progress, SectionTitle, StatusBadge } from "../components/ui";
+import { Badge, Card, Progress, SectionTitle, StatusBadge } from "../components/ui";
 
 function storedPromptPlan(): string {
   try {
@@ -96,7 +96,6 @@ function parsePromptPlan(value: string): PromptPlan {
 export default function Generate() {
   const [promptJson, setPromptJson] = useState(storedPromptPlan);
   const [artworkGuidance, setArtworkGuidance] = useState(storedArtworkGuidance);
-  const [provider, setProvider] = useState<MusicProvider>("stable_audio_local");
   const [showKit, setShowKit] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -145,7 +144,7 @@ export default function Generate() {
     setError("");
     try {
       const parsedPlan = parsePromptPlan(promptJson);
-      await genTracks.mutateAsync({ ...parsedPlan, provider });
+      await genTracks.mutateAsync(parsedPlan);
     } catch (cause) {
       setError((cause as Error).message);
     }
@@ -207,12 +206,7 @@ export default function Generate() {
             Your draft is saved in this browser.
           </p>
         </div>
-        <Field label="Audio engine">
-          <select className="input w-auto min-w-52" value={provider} onChange={(event) => setProvider(event.target.value as MusicProvider)}>
-            <option value="stable_audio_local">Stable Audio / Local</option>
-            <option value="stable_audio_runpod">Stable Audio / RunPod</option>
-          </select>
-        </Field>
+        <Badge tone="blue">Stable Audio / Local</Badge>
       </div>
       <textarea
         className="input h-[28rem] resize-y font-mono text-sm leading-6"

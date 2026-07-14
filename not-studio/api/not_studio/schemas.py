@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
-MusicProvider = Literal["stable_audio_local", "stable_audio_runpod"]
+MusicProvider = Literal["stable_audio_local"]
 
 
 class MusicProviderInfo(BaseModel):

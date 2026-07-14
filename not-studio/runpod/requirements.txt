@@ -1,2 +1,0 @@
-runpod>=1.7,<2
-pyloudnorm>=0.1.1

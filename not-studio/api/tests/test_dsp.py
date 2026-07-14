@@ -1,4 +1,5 @@
 import numpy as np
+from mutagen.flac import FLAC
 
 from not_studio.audio import dsp
 
@@ -24,6 +25,12 @@ def test_write_audio_file_accepts_metadata_kwargs(tmp_path):
         genre="ambient",
         description="soft pads",
         track_number=1,
+        artist="Test Artist",
+        release_date="2026-07-15",
     )
 
     assert path.exists()
+    tags = FLAC(path)
+    assert tags["artist"] == ["Test Artist"]
+    assert tags["date"] == ["2026-07-15"]
+    assert tags["year"] == ["2026"]

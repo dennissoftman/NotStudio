@@ -1,6 +1,6 @@
 // Typed client for the Not Studio API.
 
-export type MusicProvider = "stable_audio_local" | "stable_audio_runpod";
+export type MusicProvider = "stable_audio_local";
 export type TrackVerdict = "liked" | "unreviewed";
 export type JobStatus = "queued" | "in_progress" | "completed" | "failed" | "cancelled";
 
@@ -156,6 +156,11 @@ export const api = {
   audioUrl: (id: string) => `/api/history/${id}/audio`,
   artworkUrl: (id: string, version?: string) =>
     `/api/studio/tracks/${id}/artwork${version ? `?v=${encodeURIComponent(version)}` : ""}`,
+  albumArtworkUrl: (title: string, version?: string) => {
+    const query = new URLSearchParams({ title });
+    if (version) query.set("v", version);
+    return `/api/studio/albums/artwork?${query.toString()}`;
+  },
 
   generateAlbum: (data: unknown) =>
     req<Job>("/studio/albums/generate", { method: "POST", body: body(data) }),
@@ -180,6 +185,15 @@ export const api = {
     const data = new FormData();
     data.append("file", file);
     return req<HistoryItem>(`/studio/tracks/${id}/artwork`, { method: "POST", body: data });
+  },
+  setAlbumArtwork: (title: string, file: File) => {
+    const data = new FormData();
+    data.append("title", title);
+    data.append("file", file);
+    return req<{ title: string; updated_at: string }>("/studio/albums/artwork", {
+      method: "POST",
+      body: data,
+    });
   },
   makeVideo: (data: unknown) =>
     req<Job>("/studio/videos", { method: "POST", body: body(data) }),

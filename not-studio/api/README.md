@@ -1,7 +1,7 @@
 # not-studio-api
 
-FastAPI backend for Not Studio: album prompt ideation, local or RunPod Stable
-Audio batch generation, human review state, history, and mix/video rendering.
+FastAPI backend for Not Studio: album prompt ideation, local Stable Audio batch
+generation, human review state, history, and mix/video rendering.
 
 Run:
 
@@ -34,6 +34,6 @@ on `0.0.0.0:8080`.
 For UI-only debugging, append `--no-model` to `uv run dev` or `uv run prod` to skip
 Stable Audio model warmup for that launched API process.
 
-Configuration is documented in `../README.md` and `.env.example`. RunPod audio
-is transferred from an attached network volume through its S3-compatible API;
-the API does not accept base64 audio or a Hugging Face token.
+Configuration is documented in `../README.md` and `.env.example`.
+`NOT_STUDIO_TRACK_AUTHOR` controls the FLAC artist tag and defaults to
+`Not Studio`; generated FLACs also receive the current UTC year and ISO date.

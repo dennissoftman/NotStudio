@@ -28,15 +28,6 @@ async def preload_generation_model(app: FastAPI) -> None:
             "device": "",
         }
         return
-    if settings.default_music_provider != "stable_audio_local":
-        app.state.model = {
-            "status": "skipped",
-            "provider": settings.default_music_provider,
-            "model": "medium",
-            "device": "",
-        }
-        return
-
     app.state.model = {
         "status": "loading",
         "provider": "stable_audio_local",

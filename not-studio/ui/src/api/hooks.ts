@@ -178,6 +178,13 @@ export function useSetTrackArtwork() {
   });
 }
 
+export function useSetAlbumArtwork() {
+  return useMutation({
+    mutationFn: ({ title, file }: { title: string; file: File }) =>
+      api.setAlbumArtwork(title, file),
+  });
+}
+
 export function useMakeVideo() {
   const qc = useQueryClient();
   return useMutation({

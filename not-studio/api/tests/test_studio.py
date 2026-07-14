@@ -2,17 +2,14 @@
 
 import asyncio
 import io
-import json
 import zipfile
 
-import httpx
 import numpy as np
 import soundfile as sf
+from PIL import Image
 
 from not_studio.album_export import cue_duration
-from not_studio.backends import runpod_stable_audio
 from not_studio.backends import stable_audio
-from not_studio.config import get_settings
 from not_studio.db import session_scope
 from not_studio.models import HistoryItem, Job
 from not_studio.routers.studio import build_album_prompts
@@ -126,62 +123,6 @@ def test_generate_audio_grows_model_buffer_past_120_seconds(monkeypatch):
 
     assert calls["sample_size"] > 180 * 100
     assert audio.shape == (180 * 100, 2)
-
-
-def test_runpod_generate_batch_sends_one_request_and_writes_tracks(tmp_path, monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "runpod_endpoint_id", "endpoint-123")
-    monkeypatch.setattr(settings, "runpod_api_key", "secret")
-    monkeypatch.setattr(settings, "runpod_volume_id", "volume-123")
-    monkeypatch.setattr(settings, "runpod_s3_endpoint_url", "https://s3api-eu.test")
-    monkeypatch.setattr(settings, "runpod_s3_access_key_id", "access")
-    monkeypatch.setattr(settings, "runpod_s3_secret_access_key", "storage-secret")
-    monkeypatch.setattr(settings, "runpod_s3_region", "EU-TEST-1")
-    prompts = [
-        {"title": "Track One", "prompt": "warm pads", "duration": 30},
-        {"title": "Track Two", "prompt": "deep bass", "duration": 45},
-    ]
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v2/endpoint-123/runsync"
-        assert request.headers["Authorization"] == "Bearer secret"
-        payload = json.loads(request.content)
-        assert payload["input"]["prompts"] == prompts
-        assert payload["input"]["sample_rate"] == 44100
-        return httpx.Response(
-            200,
-            json={
-                "status": "COMPLETED",
-                "output": {
-                    "tracks": [
-                        {"storage_key": "not-studio/job/01-track-one.flac"},
-                        {"storage_key": "not-studio/job/02-track-two.flac"},
-                    ]
-                },
-            },
-        )
-
-    class FakeStorage:
-        objects = {
-            "not-studio/job/01-track-one.flac": b"first-flac",
-            "not-studio/job/02-track-two.flac": b"second-flac",
-        }
-
-        def download_fileobj(self, bucket, key, output):
-            assert bucket == "volume-123"
-            output.write(self.objects[key])
-
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        produced = runpod_stable_audio.generate_batch(
-            prompts,
-            sample_rate=44100,
-            model="medium",
-            out_dir=tmp_path,
-            client=client,
-            storage_client=FakeStorage(),
-        )
-
-    assert [path.read_bytes() for _, path in produced] == [b"first-flac", b"second-flac"]
 
 
 def test_build_album_prompts_from_music_controls():
@@ -565,11 +506,22 @@ def test_album_export_downloads_ordered_tagged_flacs_and_cue(tmp_path):
 
     with TestClient(app) as client:
         first_id, second_id = asyncio.run(create_tracks())
+        cover = io.BytesIO()
+        Image.new("RGB", (24, 24), (80, 40, 160)).save(cover, format="JPEG")
+        uploaded_cover = client.post(
+            "/api/studio/albums/artwork",
+            data={"title": "City Signals"},
+            files={"file": ("cover.jpg", cover.getvalue(), "image/jpeg")},
+        )
+        served_cover = client.get("/api/studio/albums/artwork", params={"title": "City Signals"})
         response = client.post(
             "/api/studio/albums/export",
             json={"title": "City Signals", "item_ids": [second_id, first_id]},
         )
 
+    assert uploaded_cover.status_code == 200
+    assert served_cover.status_code == 200
+    assert served_cover.headers["content-type"] == "image/png"
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
     assert "City%20Signals.zip" in response.headers["content-disposition"]
@@ -577,8 +529,10 @@ def test_album_export_downloads_ordered_tagged_flacs_and_cue(tmp_path):
         assert archive.namelist() == [
             "01 - Night Drive.flac",
             "02 - Opening - Light.flac",
+            "City Signals.png",
             "City Signals.cue",
         ]
+        assert archive.read("City Signals.png").startswith(b"\x89PNG\r\n\x1a\n")
         cue = archive.read("City Signals.cue").decode()
         assert 'TITLE "City Signals"' in cue
         assert 'FILE "01 - Night Drive.flac" WAVE' in cue
@@ -593,6 +547,9 @@ def test_album_export_downloads_ordered_tagged_flacs_and_cue(tmp_path):
     first_export = FLAC(tmp_path / "extracted" / "01 - Night Drive.flac")
     second_export = FLAC(tmp_path / "extracted" / "02 - Opening - Light.flac")
     assert first_export["album"] == ["City Signals"]
+    assert first_export["artist"] == ["Not Studio"]
+    assert len(first_export["date"][0]) == 10
+    assert first_export["year"] == [first_export["date"][0][:4]]
     assert first_export["tracknumber"] == ["1/2"]
     assert second_export["tracknumber"] == ["2/2"]
     assert second_export.pictures[0].data == b"first-cover"

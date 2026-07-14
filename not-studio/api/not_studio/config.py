@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from hashlib import sha256
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,21 +33,13 @@ class Settings(BaseSettings):
     # Audio defaults -------------------------------------------------------
     sample_rate: int = 44100
     channels: int = 2
+    track_author: str = "Not Studio"
 
     # Track generation -----------------------------------------------------
-    default_music_provider: str = "stable_audio_local"
     preload_local_model_on_startup: bool = True
-    runpod_endpoint_id: str = ""
-    runpod_api_key: str = ""
-    runpod_base_url: str = "https://api.runpod.ai/v2"
-    runpod_timeout_seconds: float = 3600.0
-    runpod_volume_id: str = ""
-    runpod_s3_endpoint_url: str = ""
-    runpod_s3_access_key_id: str = ""
-    runpod_s3_secret_access_key: str = ""
-    runpod_s3_region: str = ""
 
     def model_post_init(self, __context: object) -> None:
+        self.track_author = self.track_author.strip() or "Not Studio"
         self.data_dir = self.data_dir.expanduser().resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         if not self.database_url:
@@ -71,6 +64,15 @@ class Settings(BaseSettings):
     def video_backgrounds_dir(self) -> Path:
         """Where user-uploaded visual backdrops are kept for rendering and retries."""
         return self._subdir("video-backgrounds")
+
+    @property
+    def album_artwork_dir(self) -> Path:
+        """PNG cover files keyed by normalized album title."""
+        return self._subdir("album-artwork")
+
+    def album_artwork_path(self, album_title: str) -> Path:
+        key = sha256(album_title.strip().encode("utf-8")).hexdigest()
+        return self.album_artwork_dir / f"{key}.png"
 
 
 @lru_cache
