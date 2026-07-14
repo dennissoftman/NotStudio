@@ -76,8 +76,10 @@ before warmup finishes waits on that worker. Set
 For a production-style local launch:
 
 ```bash
-uv run dev --production
+uv run prod
 ```
+
+`uv run prod` is shorthand for `uv run dev --production`.
 
 This builds and serves the UI on `0.0.0.0:8080` and runs the API without reload
 on `0.0.0.0:8081`. Application data defaults to `not-studio/api/data/`.

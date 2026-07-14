@@ -28,6 +28,8 @@ stable-audio-3 = { path = "../../stable-audio-3" }
 [project.scripts]
 # `uv run dev` — API + Vite UI, one command.
 dev = "not_studio.dev:main"
+# `uv run prod` — shorthand for `uv run dev --production`.
+prod = "not_studio.dev:prod"
 
 [dependency-groups]
 dev = [

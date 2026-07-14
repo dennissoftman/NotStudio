@@ -132,3 +132,10 @@ def main() -> None:
         _log("dev", "shutting down")
         for proc in procs:
             proc.terminate()
+
+
+def prod() -> None:
+    """Run the dev launcher in production mode."""
+    if "--production" not in sys.argv[1:]:
+        sys.argv.insert(1, "--production")
+    main()

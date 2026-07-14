@@ -27,7 +27,8 @@ Video validation, audio concatenation, and YouTube-compatible encoding use the
 `python-ffmpeg` API. Its progress events update render-job percentages and
 messages; application code does not invoke FFmpeg through `subprocess`.
 
-From this directory, `uv run dev --production` starts the API on `0.0.0.0:8081` and the built UI
+From this directory, `uv run prod` (shorthand for `uv run dev --production`) starts the API on
+`0.0.0.0:8081` and the built UI
 on `0.0.0.0:8080`.
 
 Configuration is documented in `../README.md` and `.env.example`. RunPod audio

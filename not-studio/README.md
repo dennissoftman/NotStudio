@@ -54,7 +54,8 @@ uv run dev
 `http://localhost:5173`. Jobs run as FastAPI background tasks inside the API.
 Job state reaches the UI through a WebSocket instead of browser polling.
 
-For a production-style local launch, run `uv run dev --production`. It builds and serves the UI
+For a production-style local launch, run `uv run prod` (shorthand for
+`uv run dev --production`). It builds and serves the UI
 on `0.0.0.0:8080` and starts the API without reload on `0.0.0.0:8081`.
 
 Run tests from `api/`:
