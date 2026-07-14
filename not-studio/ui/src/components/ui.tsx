@@ -1,15 +1,6 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import {
-  MediaPlayer,
-  MediaProvider,
-  type MediaPlayerInstance,
-} from "@vidstack/react";
-import {
-  DefaultAudioLayout,
-  DefaultVideoLayout,
-  defaultLayoutIcons,
-} from "@vidstack/react/player/layouts/default";
-import { XIcon } from "./icons";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Howl } from "howler";
+import { PauseIcon, PlayIcon, XIcon } from "./icons";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
@@ -103,69 +94,129 @@ export function Empty({ children }: { children: ReactNode }) {
   );
 }
 
-let activeAudioPlayer: MediaPlayerInstance | null = null;
+let activeAudioPlayer: Howl | null = null;
 
 export function AudioPlayer({ src, label }: { src: string; label: string }) {
-  const player = useRef<MediaPlayerInstance>(null);
-
-  const releasePlayer = () => {
-    if (activeAudioPlayer === player.current) {
-      activeAudioPlayer = null;
-    }
-  };
-
-  const activatePlayer = () => {
-    const currentPlayer = player.current;
-    if (!currentPlayer) return;
-
-    const previousPlayer = activeAudioPlayer;
-    if (previousPlayer && previousPlayer !== currentPlayer) {
-      if (!previousPlayer.state.paused) void previousPlayer.pause();
-    }
-    activeAudioPlayer = currentPlayer;
-  };
+  const sound = useRef<Howl | null>(null);
+  const frame = useRef<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [position, setPosition] = useState(0);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const mountedPlayer = player.current;
-    return () => {
-      if (activeAudioPlayer === mountedPlayer) {
-        activeAudioPlayer = null;
-      }
+    setPlaying(false);
+    setDuration(0);
+    setPosition(0);
+    setError("");
+
+    const stopFrame = () => {
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      frame.current = null;
     };
-  }, []);
+    const updatePosition = () => {
+      const current = sound.current;
+      if (!current) return;
+      const seek = current.seek();
+      setPosition(typeof seek === "number" ? seek : 0);
+      if (current.playing()) frame.current = requestAnimationFrame(updatePosition);
+    };
+    const player = new Howl({
+      src: [src],
+      format: ["flac"],
+      html5: true,
+      preload: "metadata",
+      onload: () => setDuration(player.duration()),
+      onplay: () => {
+        setPlaying(true);
+        stopFrame();
+        updatePosition();
+      },
+      onpause: () => {
+        setPlaying(false);
+        stopFrame();
+      },
+      onstop: () => {
+        setPlaying(false);
+        setPosition(0);
+        stopFrame();
+      },
+      onend: () => {
+        setPlaying(false);
+        setPosition(player.duration());
+        stopFrame();
+        if (activeAudioPlayer === player) activeAudioPlayer = null;
+      },
+      onloaderror: (_id, cause) => setError(`Could not load audio (${String(cause)})`),
+      onplayerror: (_id, cause) => setError(`Could not play audio (${String(cause)})`),
+    });
+    sound.current = player;
+
+    return () => {
+      stopFrame();
+      if (activeAudioPlayer === player) activeAudioPlayer = null;
+      player.unload();
+      sound.current = null;
+    };
+  }, [src]);
+
+  const toggle = () => {
+    const player = sound.current;
+    if (!player) return;
+    if (player.playing()) {
+      player.pause();
+      return;
+    }
+    if (activeAudioPlayer && activeAudioPlayer !== player) activeAudioPlayer.pause();
+    activeAudioPlayer = player;
+    setError("");
+    player.play();
+  };
 
   return (
-    <MediaPlayer
-      ref={player}
-      className="media-audio-player"
-      title={label}
-      src={{ src, type: "audio/flac" }}
-      viewType="audio"
-      streamType="on-demand"
-      preload="metadata"
-      onPlay={activatePlayer}
-      onEnded={releasePlayer}
-    >
-      <MediaProvider />
-      <DefaultAudioLayout icons={defaultLayoutIcons} />
-    </MediaPlayer>
+    <div className="audio-player" title={error || label}>
+      <button
+        type="button"
+        className="audio-player-button"
+        onClick={toggle}
+        aria-label={`${playing ? "Pause" : "Play"} ${label}`}
+      >
+        {playing ? <PauseIcon className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
+      </button>
+      <span className="w-9 text-right text-[11px] tabular-nums text-slate-500">
+        {fmtDuration(position)}
+      </span>
+      <input
+        className="audio-player-range"
+        type="range"
+        min={0}
+        max={duration || 0}
+        step={0.1}
+        value={Math.min(position, duration || 0)}
+        aria-label={`Seek ${label}`}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          sound.current?.seek(next);
+          setPosition(next);
+        }}
+      />
+      <span className="w-9 text-[11px] tabular-nums text-slate-500">
+        {duration ? fmtDuration(duration) : "--:--"}
+      </span>
+    </div>
   );
 }
 
 export function VideoPlayer({ src, label }: { src: string; label: string }) {
   return (
-    <MediaPlayer
+    <video
       className="media-video-player"
       title={label}
-      src={{ src, type: "video/mp4" }}
-      viewType="video"
-      streamType="on-demand"
+      src={src}
       preload="metadata"
       playsInline
-    >
-      <MediaProvider />
-      <DefaultVideoLayout icons={defaultLayoutIcons} />
-    </MediaPlayer>
+      controls
+    />
   );
 }
 

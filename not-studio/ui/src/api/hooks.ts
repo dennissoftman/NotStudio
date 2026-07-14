@@ -145,6 +145,19 @@ export function useReviewTrack() {
   });
 }
 
+export function useSetTrackAlbum() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, albumTitle }: { id: string; albumTitle: string | null }) =>
+      api.setTrackAlbum(id, albumTitle),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: keys.tracks }),
+        qc.invalidateQueries({ queryKey: keys.history }),
+      ]),
+  });
+}
+
 export function useRegenerateTrack() {
   const qc = useQueryClient();
   return useMutation({

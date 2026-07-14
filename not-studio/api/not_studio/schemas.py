@@ -62,6 +62,17 @@ class TrackReviewRequest(BaseModel):
     note: str | None = Field(default=None, max_length=500)
 
 
+class TrackAlbumRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    album_title: str | None = Field(default=None, max_length=160)
+
+    @field_validator("album_title")
+    @classmethod
+    def normalize_album_title(cls, value: str | None) -> str | None:
+        title = value.strip() if value else ""
+        return title or None
+
+
 class MakeVideoRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     item_ids: list[str]

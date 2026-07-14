@@ -26,7 +26,7 @@ job snapshots over `/api/jobs/ws`, and only one track preview plays at a time.
 .
 ├── not-studio/
 │   ├── api/          # FastAPI API, SQLite state, jobs, audio, and video export
-│   ├── ui/           # React, TypeScript, Vite, Tailwind, and Vidstack
+│   ├── ui/           # React, TypeScript, Vite, Tailwind, and Howler playback
 │   └── runpod/       # Stable Audio RunPod Serverless worker
 ├── stable-audio-3/   # local Stable Audio 3 package used by the API
 └── pyproject.toml    # repository-level engine/development environment
@@ -72,6 +72,8 @@ the API starts. `/api/health` remains available while its model status moves
 from `loading` to `ready`; the UI shows the same state. A generation submitted
 before warmup finishes waits on that worker. Set
 `NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP=false` to disable startup warmup.
+For a UI-only debugging session, `uv run dev --no-model` applies that
+setting just to the launched API process.
 
 For a production-style local launch:
 

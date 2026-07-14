@@ -277,6 +277,39 @@ def test_track_review_updates_history_item_metadata():
     assert body["meta"]["review"]["reviewed_at"]
 
 
+def test_track_album_assignment_moves_and_unfiles_track():
+    async def create_track() -> str:
+        async with session_scope() as session:
+            item = HistoryItem(
+                kind="track",
+                title="Album Candidate",
+                path="/tmp/album-candidate.flac",
+                meta={"review": {"verdict": "liked"}},
+            )
+            session.add(item)
+            await session.commit()
+            await session.refresh(item)
+            return item.id
+
+    with TestClient(app) as client:
+        item_id = asyncio.run(create_track())
+        assigned = client.patch(
+            f"/api/studio/tracks/{item_id}/album", json={"album_title": "  Night Roads  "}
+        )
+        moved = client.patch(
+            f"/api/studio/tracks/{item_id}/album", json={"album_title": "City Signals"}
+        )
+        unfiled = client.patch(f"/api/studio/tracks/{item_id}/album", json={"album_title": None})
+
+    assert assigned.status_code == 200
+    assert assigned.json()["meta"]["album"]["title"] == "Night Roads"
+    assert assigned.json()["meta"]["review"]["verdict"] == "liked"
+    assert moved.json()["meta"]["album"]["title"] == "City Signals"
+    assert moved.json()["meta"]["album"]["assigned_at"]
+    assert "album" not in unfiled.json()["meta"]
+    assert unfiled.json()["meta"]["review"]["verdict"] == "liked"
+
+
 def test_regenerate_track_submits_replacement_with_original_prompt(monkeypatch):
     started: list[str] = []
 

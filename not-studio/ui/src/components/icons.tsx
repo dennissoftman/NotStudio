@@ -46,6 +46,14 @@ export function PlusIcon(props: IconProps) {
   return <svg {...shared} {...props}><path d="M12 5v14M5 12h14" /></svg>;
 }
 
+export function PlayIcon(props: IconProps) {
+  return <svg {...shared} {...props}><path d="m9 7 8 5-8 5V7Z" /></svg>;
+}
+
+export function PauseIcon(props: IconProps) {
+  return <svg {...shared} {...props}><path d="M9 7v10M15 7v10" /></svg>;
+}
+
 export function SparklesIcon(props: IconProps) {
   return <svg {...shared} {...props}><path d="m12 3 1.1 3.2L16 8l-2.9 1.8L12 13l-1.1-3.2L8 8l2.9-1.8L12 3ZM5 14l.8 2.2L8 17.5l-2.2 1.3L5 21l-.8-2.2L2 17.5l2.2-1.3L5 14Zm13-2 .8 2.2 2.2 1.3-2.2 1.3L18 19l-.8-2.2-2.2-1.3 2.2-1.3L18 12Z" /></svg>;
 }

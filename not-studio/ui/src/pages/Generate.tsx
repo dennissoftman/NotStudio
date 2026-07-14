@@ -143,7 +143,7 @@ export default function Generate() {
     <SectionTitle
       title="Generate from your prompts"
       subtitle="Bring the music direction from GPT, paste the JSON plan, and send it straight to Stable Audio."
-      actions={<Link className="btn-ghost" to="/library">Review tracks</Link>}
+      actions={<Link className="btn-ghost" to="/library">Open library</Link>}
     />
 
     <Card className="mb-4 overflow-hidden !border-accent/30 bg-gradient-to-br from-accent/10 via-ink-900 to-ink-900">

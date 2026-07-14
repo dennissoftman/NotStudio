@@ -1,4 +1,7 @@
-"""One-command dev launcher for the FastAPI API and Vite UI."""
+"""One-command dev launcher for the FastAPI API and Vite UI.
+
+Pass --no-model to skip Stable Audio warmup during UI-focused debugging.
+"""
 
 from __future__ import annotations
 
@@ -26,17 +29,24 @@ def _log(name: str, message: str) -> None:
 
 
 class _Proc:
-    def __init__(self, name: str, cmd: list[str], cwd: Path) -> None:
+    def __init__(
+        self,
+        name: str,
+        cmd: list[str],
+        cwd: Path,
+        env: dict[str, str] | None = None,
+    ) -> None:
         self.name = name
         self.cmd = cmd
         self.cwd = cwd
+        self.env = env
         self.popen: subprocess.Popen[str] | None = None
 
     def start(self) -> None:
         self.popen = subprocess.Popen(
             self.cmd,
             cwd=str(self.cwd),
-            env=os.environ.copy(),
+            env=self.env or os.environ.copy(),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -76,6 +86,7 @@ def main() -> None:
         return
 
     production = "--production" in args
+    skip_model_preload = "--no-model" in args
     api_port = "8081" if production else "8001"
     argv = sys.argv[1:]
     if "--api-port" in argv:
@@ -98,11 +109,16 @@ def main() -> None:
     ]
     if not production:
         api_command.append("--reload")
+    api_env = os.environ.copy()
+    if skip_model_preload:
+        api_env["NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP"] = "false"
+        _log("dev", "Stable Audio model preload disabled")
     procs: list[_Proc] = [
         _Proc(
             "api",
             api_command,
             _API_DIR,
+            api_env,
         )
     ]
     if "--no-ui" not in args:

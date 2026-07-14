@@ -82,19 +82,23 @@ The Generate page also keeps a browser-saved `artwork_guidance` value in the
 copied GPT prompt kit for persistent visual style and constraint instructions.
 After reviews change, copying the kit again includes the new taste signals automatically.
 
-## Album export
+## Library and album export
 
-The numbered Review selection is also the album track order. Album export
-downloads a ZIP containing numbered FLAC copies, embedded cover artwork, album
-and track-number metadata, and a multi-file CUE sheet. Export only modifies the
-copies inside the ZIP; reviewed library files remain unchanged.
+The Library lists every generated track with search, album tabs, and sorting by
+generation date, name, or album. Assign a track to an existing album, create a
+new album from its card, or return it to Unfiled. The Mix page loads an album
+into an editable ordered queue. Album export downloads a ZIP containing numbered
+FLAC copies, embedded cover artwork, album and track-number metadata, and a
+multi-file CUE sheet. Export only modifies the copies inside the ZIP; library
+files remain unchanged.
 
 ## Mix export
 
-Mix export is decision-only: select and order the tracks, then choose the video.
-There are no visualizer, title, resolution, transition, or effect controls. The
-tracks play consecutively in the selected order while the technical encoding
-details are applied automatically.
+The Mix page has separate Album export and Video mix tabs. Both use the same
+editable ordered queue; the video tab adds the backdrop selection. There are no
+visualizer, title, resolution, transition, or effect controls. The tracks play
+consecutively in the selected order while the technical encoding details are
+applied automatically.
 
 The required video can use any container or codec that the local
 FFmpeg build can decode, including MP4, MKV, AVI, MOV, and WebM. The input clip
@@ -106,12 +110,11 @@ these operations through the documented `python-ffmpeg` package instead of
 calling `subprocess` directly. FFmpeg timestamp progress is mapped onto the
 existing job progress bar and live WebSocket updates.
 
-Track previews and rendered mixes use Vidstack's production-ready React audio
-and video layouts, including accessible play, seek, volume, mute, keyboard,
-picture-in-picture, and fullscreen behavior. Not Studio does not maintain a
-homegrown browser media player.
+Track previews use a custom Howler player backed by HTML5 audio streaming, with
+play, pause, seek, elapsed time, and one-active-track coordination. Rendered
+mixes use the browser's native video controls.
 
-Review cards can embed optional PNG, JPEG, or WebP cover artwork directly in
+Library cards can embed optional PNG, JPEG, or WebP cover artwork directly in
 the generated FLAC. The same card downloads the FLAC with that artwork intact.
 
 ## Audio Generation
@@ -124,7 +127,8 @@ model state as `loading`, `ready`, or `failed`; the sidebar mirrors that state.
 A generation submitted during warmup waits for the same worker, then reuses the
 loaded model. A preload failure leaves the API available and is reported by the
 health endpoint. Set `NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP=false` only when
-a cold local worker is intentional.
+a cold local worker is intentional. For UI-only debugging, use
+`uv run dev --no-model` (the same flag also works with `uv run prod`).
 
 `Stable Audio / RunPod` sends the entire batch to one RunPod Serverless
 `/runsync` request. The worker writes FLAC files to an attached network volume;

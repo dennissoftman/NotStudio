@@ -29,6 +29,7 @@ from ..schemas import (
     PromptSpec,
     TasteExample,
     TasteProfile,
+    TrackAlbumRequest,
     TrackReviewRequest,
     VideoBackgroundUpload,
 )
@@ -285,6 +286,32 @@ async def review_track(
         "note": payload.note,
         "reviewed_at": datetime.now(UTC).isoformat(),
     }
+    item.meta = meta
+    session.add(item)
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+
+@router.patch("/tracks/{item_id}/album", response_model=HistoryItem)
+async def set_track_album(
+    item_id: str,
+    payload: TrackAlbumRequest,
+    session: AsyncSession = Depends(get_session),
+) -> HistoryItem:
+    """Assign a track to an album, move it between albums, or leave it unfiled."""
+    item = await session.get(HistoryItem, item_id)
+    if item is None or item.kind != "track":
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    meta = dict(item.meta or {})
+    if payload.album_title is None:
+        meta.pop("album", None)
+    else:
+        album = dict(meta.get("album") or {})
+        album["title"] = payload.album_title
+        album["assigned_at"] = datetime.now(UTC).isoformat()
+        meta["album"] = album
     item.meta = meta
     session.add(item)
     await session.commit()

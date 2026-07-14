@@ -57,12 +57,16 @@
   .choice-chip-active {
     @apply border-accent bg-accent/20 text-accent-soft;
   }
-  .media-audio-player {
-    --media-brand: theme(colors.purple.400);
-    @apply min-w-64 max-w-full overflow-hidden rounded-xl border border-ink-600 bg-ink-950 text-slate-100 shadow-inner;
+  .audio-player {
+    @apply flex min-w-64 max-w-full items-center gap-2 rounded-full border border-ink-600 bg-ink-950 px-2 py-1 text-slate-100 shadow-inner;
+  }
+  .audio-player-button {
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-soft;
+  }
+  .audio-player-range {
+    @apply h-1 min-w-20 flex-1 cursor-pointer appearance-none rounded-full bg-ink-600 accent-purple-400;
   }
   .media-video-player {
-    --media-brand: theme(colors.purple.400);
     @apply aspect-video w-full overflow-hidden rounded-xl border border-ink-600 bg-black text-slate-100 shadow-2xl shadow-black/30;
   }
   .icon-button {

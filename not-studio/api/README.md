@@ -31,6 +31,9 @@ From this directory, `uv run prod` (shorthand for `uv run dev --production`) sta
 `0.0.0.0:8081` and the built UI
 on `0.0.0.0:8080`.
 
+For UI-only debugging, append `--no-model` to `uv run dev` or `uv run prod` to skip
+Stable Audio model warmup for that launched API process.
+
 Configuration is documented in `../README.md` and `.env.example`. RunPod audio
 is transferred from an attached network volume through its S3-compatible API;
 the API does not accept base64 audio or a Hugging Face token.

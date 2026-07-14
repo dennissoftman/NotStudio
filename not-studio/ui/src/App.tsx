@@ -3,10 +3,12 @@ import { useHealth } from "./api/hooks";
 import { cx } from "./components/ui";
 import Generate from "./pages/Generate";
 import Library from "./pages/Library";
+import Mix from "./pages/Mix";
 
 const NAV = [
   { to: "/", label: "Generate", end: true },
-  { to: "/library", label: "Review" },
+  { to: "/library", label: "Library" },
+  { to: "/mix", label: "Mix" },
 ];
 
 function Sidebar() {
@@ -80,6 +82,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Generate />} />
             <Route path="/library" element={<Library />} />
+            <Route path="/mix" element={<Mix />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

@@ -167,6 +167,11 @@ export const api = {
   },
   reviewTrack: (id: string, data: { verdict: TrackVerdict; note?: string | null }) =>
     req<HistoryItem>(`/studio/tracks/${id}/review`, { method: "PATCH", body: body(data) }),
+  setTrackAlbum: (id: string, albumTitle: string | null) =>
+    req<HistoryItem>(`/studio/tracks/${id}/album`, {
+      method: "PATCH",
+      body: body({ album_title: albumTitle }),
+    }),
   regenerateTrack: (id: string) =>
     req<Job>(`/studio/tracks/${id}/regenerate`, { method: "POST" }),
   setTrackArtwork: (id: string, file: File) => {
