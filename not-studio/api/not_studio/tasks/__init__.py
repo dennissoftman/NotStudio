@@ -1,1 +1,1 @@
-"""Local background jobs for generation and mix rendering."""
+"""Local background jobs for generation."""

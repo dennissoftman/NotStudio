@@ -1,8 +1,7 @@
-"""Studio: album batches, human track review, then YouTube-ready mixes."""
+"""Studio: album batches, human track review, and album construction."""
 
 from __future__ import annotations
 
-import asyncio
 import io
 import tempfile
 from datetime import UTC, datetime
@@ -15,17 +14,14 @@ from starlette.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from .. import video_export
 from ..album_export import create_album_archive, safe_filename
 from ..config import get_settings
-from ..constants import new_id
 from ..deps import get_session
 from ..models import HistoryItem, Job
 from ..schemas import (
     GenerateAlbumRequest,
     GenerateTracksRequest,
     AlbumExportRequest,
-    MakeVideoRequest,
     PromptKitResponse,
     PromptPlan,
     PromptSpec,
@@ -33,9 +29,8 @@ from ..schemas import (
     TasteProfile,
     TrackAlbumRequest,
     TrackReviewRequest,
-    VideoBackgroundUpload,
 )
-from ..tasks.submit import submit_generate_tracks, submit_make_video
+from ..tasks.submit import submit_generate_tracks
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
@@ -49,7 +44,7 @@ def _track_duration(
     position = (index - 1) / (total - 1)
     deviation = (position * 2.0) - 1.0
     duration = round(base_duration * (1.0 + deviation * spread))
-    return float(max(15, min(900, duration)))
+    return float(max(15, min(240, duration)))
 
 
 def build_album_prompts(payload: GenerateAlbumRequest) -> list[dict]:
@@ -113,7 +108,7 @@ async def export_album(
     payload: AlbumExportRequest,
     session: AsyncSession = Depends(get_session),
 ) -> FileResponse:
-    """Download selected tracks in order as tagged FLACs plus a multi-file CUE."""
+    """Download tagged FLACs, a CUE, and optional per-track cover videos."""
     settings = get_settings()
     items: list[HistoryItem] = []
     for item_id in payload.item_ids:
@@ -131,13 +126,13 @@ async def export_album(
     output.close()
     output_path = Path(output.name)
     try:
-        await asyncio.to_thread(
-            create_album_archive,
+        await create_album_archive(
             payload.title.strip(),
             items,
             output_path,
             artist=settings.track_author,
             cover_path=settings.album_artwork_path(payload.title),
+            include_track_videos=payload.include_track_videos,
         )
     except Exception as exc:  # noqa: BLE001
         output_path.unlink(missing_ok=True)
@@ -197,7 +192,7 @@ async def generate(
     payload: GenerateTracksRequest,
     session: AsyncSession = Depends(get_session),
 ) -> Job:
-    """Generate tracks from a prompt list (local Stable Audio 3 by default)."""
+    """Generate tracks from a prompt list with local ACE-Step Text2Music."""
     if not payload.prompts:
         raise HTTPException(status_code=400, detail="Provide at least one prompt")
     return await submit_generate_tracks(
@@ -263,7 +258,7 @@ async def get_prompt_kit(session: AsyncSession = Depends(get_session)) -> Prompt
             "Follow artwork_guidance when writing album and track artwork_prompt fields.",
             "Make each prompt specific about arrangement, instrumentation, texture, energy, and tempo feel.",
             "Avoid artist names and copyrighted song references.",
-            "Keep duration between 15 and 900 seconds and provide a genre for every track.",
+            "Keep duration between 15 and 240 seconds and provide a genre for every track.",
         ],
         artwork_guidance="",
         output_schema=PromptPlan.model_json_schema(),
@@ -388,7 +383,7 @@ async def regenerate_track(
         "title": item.title,
         "genre": genre,
         "prompt": prompt,
-        "duration": max(15.0, min(900.0, item.duration_seconds)),
+        "duration": max(15.0, min(240.0, item.duration_seconds)),
     }
     for key in (
         "target_duration",
@@ -477,66 +472,3 @@ async def get_track_artwork(item_id: str, session: AsyncSession = Depends(get_se
         media_type=picture.mime or "application/octet-stream",
         headers={"Cache-Control": "private, max-age=31536000, immutable"},
     )
-
-
-@router.post("/videos", response_model=Job, status_code=201)
-async def make_video(
-    payload: MakeVideoRequest,
-    session: AsyncSession = Depends(get_session),
-) -> Job:
-    """Combine the selected tracks with a looping video using automatic defaults."""
-    if not payload.item_ids:
-        raise HTTPException(status_code=400, detail="Select at least one track")
-    background_path = get_settings().video_backgrounds_dir / payload.background_id
-    if not background_path.is_file():
-        raise HTTPException(status_code=404, detail="Uploaded video background not found")
-    return await submit_make_video(
-        session,
-        item_ids=payload.item_ids,
-        background_id=payload.background_id,
-    )
-
-
-@router.post("/video-backgrounds", response_model=VideoBackgroundUpload, status_code=201)
-async def upload_video_background(file: UploadFile = File(...)) -> VideoBackgroundUpload:
-    """Store and inspect any visual format supported by the installed FFmpeg build."""
-    filename = Path(file.filename or "background").name
-    background_id = new_id()
-    destination = get_settings().video_backgrounds_dir / background_id
-    size = 0
-    try:
-        with destination.open("wb") as output:
-            while chunk := await file.read(1024 * 1024):
-                output.write(chunk)
-                size += len(chunk)
-        if size == 0:
-            raise HTTPException(status_code=400, detail="Background file is empty")
-        await video_export.validate_video_input(destination)
-    except HTTPException:
-        destination.unlink(missing_ok=True)
-        raise
-    except Exception as exc:
-        destination.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    finally:
-        await file.close()
-
-    return VideoBackgroundUpload(
-        id=background_id,
-        filename=filename,
-        size_bytes=size,
-    )
-
-
-@router.get("/videos", response_model=list[HistoryItem])
-async def list_videos(
-    session: AsyncSession = Depends(get_session),
-    limit: int = Query(default=100, le=500),
-) -> list[HistoryItem]:
-    res = await session.execute(
-        select(HistoryItem)
-        .where(HistoryItem.kind == "video")
-        .order_by(HistoryItem.created_at.desc())
-        .limit(limit)
-    )
-    return list(res.scalars().all())

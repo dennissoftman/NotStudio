@@ -1,6 +1,6 @@
 """One-command dev launcher for the FastAPI API and Vite UI.
 
-Pass --no-model to skip Stable Audio warmup during UI-focused debugging.
+Pass --no-model to skip ACE-Step warmup during UI-focused debugging.
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ def main() -> None:
     api_env = os.environ.copy()
     if skip_model_preload:
         api_env["NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP"] = "false"
-        _log("dev", "Stable Audio model preload disabled")
+        _log("dev", "ACE-Step model preload disabled")
     procs: list[_Proc] = [
         _Proc(
             "api",

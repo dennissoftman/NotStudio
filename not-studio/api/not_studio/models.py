@@ -12,7 +12,7 @@ from .constants import new_id, utcnow
 
 
 class Job(SQLModel, table=True):
-    """A local background job for generation or mix rendering."""
+    """A local background job for generation."""
 
     id: str = Field(default_factory=new_id, primary_key=True)
     type: str = "generate_tracks"
@@ -29,10 +29,10 @@ class Job(SQLModel, table=True):
 
 
 class HistoryItem(SQLModel, table=True):
-    """A generated track or rendered mix saved for human review."""
+    """A generated track saved for human review."""
 
     id: str = Field(default_factory=new_id, primary_key=True)
-    kind: str = "track"  # "track" | "video"
+    kind: str = "track"
     title: str = ""
     job_id: str | None = Field(default=None, foreign_key="job.id")
     path: str = ""

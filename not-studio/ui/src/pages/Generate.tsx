@@ -68,7 +68,7 @@ function parsePromptPlan(value: string): PromptPlan {
       }
     }
     const duration = Number(track.duration);
-    if (!Number.isFinite(duration) || duration < 15 || duration > 900) throw new Error(`Track ${index + 1} duration must be 15–900 seconds`);
+    if (!Number.isFinite(duration) || duration < 15 || duration > 240) throw new Error(`Track ${index + 1} duration must be 15–240 seconds`);
     const notes = typeof track.notes === "string" ? track.notes.trim() : "";
     const artworkPrompt = typeof track.artwork_prompt === "string" ? track.artwork_prompt.trim() : "";
     const albumTitle = typeof track.album_title === "string" ? track.album_title.trim() : "";
@@ -153,7 +153,7 @@ export default function Generate() {
   return <div>
     <SectionTitle
       title="Generate from your prompts"
-      subtitle="Bring the music direction from GPT, paste the JSON plan, and send it straight to Stable Audio."
+      subtitle="Bring the music direction from GPT, paste the JSON plan, and send it straight to ACE-Step."
       actions={<Link className="btn-ghost" to="/library">Open library</Link>}
     />
 
@@ -206,7 +206,7 @@ export default function Generate() {
             Your draft is saved in this browser.
           </p>
         </div>
-        <Badge tone="blue">Stable Audio / Local</Badge>
+        <Badge tone="blue">ACE-Step / Local</Badge>
       </div>
       <textarea
         className="input h-[28rem] resize-y font-mono text-sm leading-6"
