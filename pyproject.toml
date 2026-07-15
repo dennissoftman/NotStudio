@@ -9,9 +9,9 @@ dependencies = [
     "pyloudnorm>=0.2.0",
     "soundfile>=0.13.1",
     "ace-step",
-    "torch==2.7.1",
-    "torchaudio==2.7.1",
-    "torchvision==0.22.1",
+    "torch==2.11.0",
+    "torchaudio==2.11.0",
+    "torchvision==0.26.0",
     "tqdm>=4.68.3",
 ]
 
