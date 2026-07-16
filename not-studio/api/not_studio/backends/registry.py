@@ -9,13 +9,13 @@ from typing import Any
 from ..schemas import MusicProviderInfo
 
 
-def _probe_stable_audio_local() -> tuple[bool, str]:
-    if importlib.util.find_spec("stable_audio_3") is None:
+def _probe_ace_step_local() -> tuple[bool, str]:
+    if importlib.util.find_spec("acestep") is None:
         return (
             False,
-            "stable-audio-3 is not installed in the API environment. Run `uv sync` in api/.",
+            "ACE-Step is not installed in the API environment. Run `uv sync` in api/.",
         )
-    return True, "Runs Stable Audio 3 directly inside a cancellable API worker process."
+    return True, "Runs ACE-Step directly inside a cancellable API worker process."
 
 
 class _Provider:
@@ -31,10 +31,10 @@ class _Provider:
 
 
 PROVIDERS: dict[str, _Provider] = {
-    "stable_audio_local": _Provider(
-        "stable_audio_local",
-        _probe_stable_audio_local,
-        {"model": "medium"},
+    "ace_step_local": _Provider(
+        "ace_step_local",
+        _probe_ace_step_local,
+        {"model": "ACE-Step", "task": "text2music"},
     ),
 }
 

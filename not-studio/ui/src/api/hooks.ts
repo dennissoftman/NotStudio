@@ -8,7 +8,6 @@ const keys = {
   jobs: ["jobs"],
   history: ["history"],
   tracks: ["tracks"],
-  videos: ["videos"],
 };
 
 export function useHealth() {
@@ -48,7 +47,6 @@ export function useJobs() {
           void Promise.all([
             qc.invalidateQueries({ queryKey: keys.history }),
             qc.invalidateQueries({ queryKey: keys.tracks }),
-            qc.invalidateQueries({ queryKey: keys.videos }),
           ]);
         }
       };
@@ -103,17 +101,12 @@ export function useDeleteHistory() {
       Promise.all([
         qc.invalidateQueries({ queryKey: keys.history }),
         qc.invalidateQueries({ queryKey: keys.tracks }),
-        qc.invalidateQueries({ queryKey: keys.videos }),
       ]),
   });
 }
 
 export function useTracks() {
   return useQuery({ queryKey: keys.tracks, queryFn: () => api.tracks() });
-}
-
-export function useVideos() {
-  return useQuery({ queryKey: keys.videos, queryFn: api.videos });
 }
 
 export function useGenerateTracks() {
@@ -182,13 +175,5 @@ export function useSetAlbumArtwork() {
   return useMutation({
     mutationFn: ({ title, file }: { title: string; file: File }) =>
       api.setAlbumArtwork(title, file),
-  });
-}
-
-export function useMakeVideo() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: unknown) => api.makeVideo(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.jobs }),
   });
 }

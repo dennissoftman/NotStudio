@@ -3,13 +3,14 @@
 import asyncio
 import io
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 from PIL import Image
 
-from not_studio.album_export import cue_duration
-from not_studio.backends import stable_audio
+from not_studio.album_export import create_album_archive, cue_duration
+from not_studio.backends import ace_step
 from not_studio.db import session_scope
 from not_studio.models import HistoryItem, Job
 from not_studio.routers.studio import build_album_prompts
@@ -29,24 +30,24 @@ def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
         {"title": "Track Two", "prompt": "deep bass", "duration": 5},
     ]
 
-    monkeypatch.setattr(stable_audio, "_resolve_model_name", lambda requested: requested)
-    monkeypatch.setattr(stable_audio, "_load_model", lambda model_name: object())
+    monkeypatch.setattr(ace_step, "_load_model", lambda model_name: object())
     monkeypatch.setattr(
-        stable_audio,
-        "_generate_audio_array",
-        lambda model, prompt, duration, output_rate: np.zeros((output_rate, 2)),
+        ace_step,
+        "_generate_audio_file",
+        lambda model, request, path, **kwargs: path.write_bytes(b"stub"),
     )
     monkeypatch.setattr(
-        stable_audio.dsp,
-        "write_audio_file",
-        lambda path, audio, sample_rate, **kwargs: path.write_bytes(b"stub"),
+        ace_step.dsp,
+        "tag_flac",
+        lambda path, **kwargs: None,
     )
 
     updates: list[tuple[float, str]] = []
-    produced = stable_audio.generate_batch(
+    produced = ace_step.generate_batch(
         prompts,
         sample_rate=44100,
-        model="medium",
+        channels=2,
+        model="ACE-Step",
         out_dir=tmp_path / "out",
         on_progress=lambda frac, msg: updates.append((round(frac, 3), msg)),
     )
@@ -63,34 +64,29 @@ def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
     assert fractions[-1] >= 0.9
 
 
-def test_local_stable_audio_always_resolves_to_medium():
-    assert stable_audio._resolve_model_name("auto") == "medium"
-    assert stable_audio._resolve_model_name("anything-else") == "medium"
-
-
-def test_local_stable_audio_preload_returns_serializable_readiness(monkeypatch):
+def test_local_ace_step_preload_returns_serializable_readiness(monkeypatch):
     class Model:
         device = "mps"
 
-    monkeypatch.setattr(stable_audio, "_load_model", lambda model_name: Model())
+    monkeypatch.setattr(ace_step, "_load_model", lambda model_name: Model())
 
-    assert stable_audio.preload_model("anything") == {
+    assert ace_step.preload_model() == {
         "status": "ready",
-        "provider": "stable_audio_local",
-        "model": "medium",
+        "provider": "ace_step_local",
+        "model": "ACE-Step",
         "device": "mps",
     }
 
 
 def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
-    monkeypatch.setattr(stable_audio, "_resolve_model_name", lambda requested: requested)
-    monkeypatch.setattr(stable_audio, "_load_model", lambda model_name: object())
+    monkeypatch.setattr(ace_step, "_load_model", lambda model_name: object())
 
     try:
-        stable_audio.generate_batch(
+        ace_step.generate_batch(
             [{"title": "x", "prompt": "y", "duration": 5}],
             sample_rate=44100,
-            model="medium",
+            channels=2,
+            model="ACE-Step",
             out_dir=tmp_path / "out",
             should_cancel=lambda: True,
         )
@@ -100,29 +96,31 @@ def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
         raise AssertionError("expected RuntimeError on cancellation")
 
 
-def test_generate_audio_grows_model_buffer_past_120_seconds(monkeypatch):
-    import torch
-
+def test_generate_audio_uses_ace_step_text2music_without_lyrics(tmp_path, monkeypatch):
     calls = {}
 
-    class Inner:
-        sample_rate = 100
-
     class Model:
-        model = Inner()
-
-        def generate(self, **kwargs):
+        def __call__(self, **kwargs):
             calls.update(kwargs)
-            return torch.zeros((1, 2, int(kwargs["duration"] * 100)))
+            sf.write(kwargs["save_path"], np.zeros((800, 2)), 8000)
+            return [kwargs["save_path"], {"task": kwargs["task"]}]
 
-    monkeypatch.setattr("torchaudio.functional.resample", lambda audio, source, target: audio)
     monkeypatch.setattr(
-        stable_audio.dsp, "normalize_loudness_safely", lambda data, *args, **kwargs: data
+        ace_step.dsp, "normalize_loudness_safely", lambda data, *args, **kwargs: data
     )
-    audio = stable_audio._generate_audio_array(Model(), "long track", 180, 100)
+    output = tmp_path / "track.flac"
+    ace_step._generate_audio_file(
+        Model(),
+        ace_step.GenerationInput(prompt="long track", duration=180),
+        output,
+        sample_rate=8000,
+        channels=2,
+    )
 
-    assert calls["sample_size"] > 180 * 100
-    assert audio.shape == (180 * 100, 2)
+    assert calls["task"] == "text2music"
+    assert calls["lyrics"] == ""
+    assert calls["audio_duration"] == 180
+    assert output.is_file()
 
 
 def test_build_album_prompts_from_music_controls():
@@ -165,7 +163,7 @@ def test_prompt_plan_generation_persists_album_and_artwork_context(monkeypatch):
                 "artwork_prompt": "Empty night platform, violet glass, no text.",
             }
         ],
-        "provider": "stable_audio_local",
+        "provider": "ace_step_local",
     }
 
     with TestClient(app) as client:
@@ -217,7 +215,7 @@ async def test_prompt_album_data_overrides_plan_album_when_tracks_are_saved(tmp_
             status="queued",
             params={
                 "prompts": [spec],
-                "provider": "stable_audio_local",
+                "provider": "ace_step_local",
                 "album": {"title": "LLM Default", "notes": "Generated plan."},
             },
         )
@@ -312,7 +310,7 @@ def test_regenerate_track_submits_replacement_with_original_prompt(monkeypatch):
                 meta={
                     "prompt": "warm analog pads and a soft pulse",
                     "genre": "ambient techno",
-                    "provider": "stable_audio_local",
+                    "provider": "ace_step_local",
                     "album": {"title": "Night Roads"},
                 },
             )
@@ -437,7 +435,7 @@ async def test_regeneration_replaces_audio_but_keeps_item_and_artwork(tmp_path, 
                         "artwork_prompt": "Quiet violet field, no text",
                     }
                 ],
-                "provider": "stable_audio_local",
+                "provider": "ace_step_local",
                 "replacement_item_id": item_id,
             },
         )
@@ -552,5 +550,41 @@ def test_album_export_downloads_ordered_tagged_flacs_and_cue(tmp_path):
     assert first_export["year"] == [first_export["date"][0][:4]]
     assert first_export["tracknumber"] == ["1/2"]
     assert second_export["tracknumber"] == ["2/2"]
-    assert second_export.pictures[0].data == b"first-cover"
+    assert second_export.pictures[0].data.startswith(b"\x89PNG\r\n\x1a\n")
     assert "album" not in FLAC(first_path)
+
+
+async def test_album_export_adds_track_mp4s_only_when_cover_exists(tmp_path, monkeypatch):
+    track_path = tmp_path / "track.flac"
+    sf.write(track_path, np.zeros((441, 2)), 44100)
+    item = HistoryItem(kind="track", title="Covered Track", path=str(track_path))
+    cover_path = tmp_path / "cover.png"
+    Image.new("RGB", (24, 24), (20, 30, 40)).save(cover_path)
+    rendered: list[str] = []
+
+    async def render(audio_path, cover, output_path):
+        rendered.append(Path(output_path).name)
+        Path(output_path).write_bytes(b"mp4")
+
+    monkeypatch.setattr("not_studio.video_export.render_track_video", render)
+    covered_archive = tmp_path / "covered.zip"
+    await create_album_archive(
+        "Covered",
+        [item],
+        covered_archive,
+        cover_path=cover_path,
+        include_track_videos=True,
+    )
+    without_cover_archive = tmp_path / "without-cover.zip"
+    await create_album_archive(
+        "No Cover",
+        [item],
+        without_cover_archive,
+        include_track_videos=True,
+    )
+
+    assert rendered == ["01 - Covered Track.mp4"]
+    with zipfile.ZipFile(covered_archive) as archive:
+        assert "01 - Covered Track.mp4" in archive.namelist()
+    with zipfile.ZipFile(without_cover_archive) as archive:
+        assert not any(name.endswith(".mp4") for name in archive.namelist())

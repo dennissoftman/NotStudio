@@ -56,16 +56,6 @@ class Settings(BaseSettings):
         return self._subdir("audio")
 
     @property
-    def videos_dir(self) -> Path:
-        """Where assembled YouTube-style videos are written."""
-        return self._subdir("videos")
-
-    @property
-    def video_backgrounds_dir(self) -> Path:
-        """Where user-uploaded visual backdrops are kept for rendering and retries."""
-        return self._subdir("video-backgrounds")
-
-    @property
     def album_artwork_dir(self) -> Path:
         """PNG cover files keyed by normalized album title."""
         return self._subdir("album-artwork")

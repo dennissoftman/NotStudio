@@ -1,1 +1,1 @@
-"""Audio DSP + orchestration (timeline building + mixing)."""
+"""Audio DSP and file metadata helpers."""

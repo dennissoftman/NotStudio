@@ -1,7 +1,8 @@
-"""Build a publishable ZIP of ordered, metadata-tagged FLAC tracks."""
+"""Build a publishable ZIP of ordered FLAC tracks and optional track MP4s."""
 
 from __future__ import annotations
 
+import asyncio
 import re
 import shutil
 import tempfile
@@ -9,8 +10,9 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mutagen.flac import FLAC
+from mutagen.flac import FLAC, Picture
 
+from . import video_export
 from .models import HistoryItem
 
 
@@ -46,51 +48,116 @@ def album_cue(
     return "\n".join(lines) + "\n"
 
 
-def create_album_archive(
+def _apply_album_metadata(
+    path: Path,
+    *,
+    item: HistoryItem,
+    album_title: str,
+    artist: str,
+    index: int,
+    total: int,
+    cover_path: Path | None,
+) -> float:
+    audio = FLAC(path)
+    audio["album"] = album_title
+    audio["title"] = item.title
+    audio["tracknumber"] = f"{index}/{total}"
+    audio["tracktotal"] = str(total)
+    audio["discnumber"] = "1"
+    release_date = (audio.get("date") or [datetime.now(UTC).date().isoformat()])[0]
+    audio["artist"] = artist
+    audio["date"] = release_date
+    audio["year"] = release_date[:4]
+    if cover_path is not None and cover_path.is_file():
+        picture = Picture()
+        picture.type = 3
+        picture.mime = "image/png"
+        picture.desc = "Album cover"
+        picture.data = cover_path.read_bytes()
+        audio.clear_pictures()
+        audio.add_picture(picture)
+    audio.save()
+    return float(audio.info.length)
+
+
+def _prepare_tracks(
+    album_title: str,
+    items: list[HistoryItem],
+    temp_dir: Path,
+    *,
+    artist: str,
+    cover_path: Path | None,
+) -> tuple[list[str], list[Path], list[float]]:
+    archive_names: list[str] = []
+    paths: list[Path] = []
+    durations: list[float] = []
+    total = len(items)
+    for index, item in enumerate(items, start=1):
+        title = safe_filename(item.title, f"Track {index:02d}")
+        archive_name = f"{index:02d} - {title}.flac"
+        tagged_copy = temp_dir / archive_name
+        shutil.copy2(Path(item.path), tagged_copy)
+        durations.append(
+            _apply_album_metadata(
+                tagged_copy,
+                item=item,
+                album_title=album_title,
+                artist=artist,
+                index=index,
+                total=total,
+                cover_path=cover_path,
+            )
+        )
+        archive_names.append(archive_name)
+        paths.append(tagged_copy)
+    return archive_names, paths, durations
+
+
+def _write_archive(
+    destination: Path,
+    temp_dir: Path,
+    *,
+    album_title: str,
+    album_cue_text: str,
+    cover_path: Path | None,
+) -> None:
+    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_STORED) as archive:
+        for path in sorted(temp_dir.iterdir()):
+            archive.write(path, path.name)
+        if cover_path is not None and cover_path.is_file():
+            archive.write(cover_path, f"{safe_filename(album_title, 'album')}.png")
+        archive.writestr(f"{safe_filename(album_title, 'album')}.cue", album_cue_text)
+
+
+async def create_album_archive(
     album_title: str,
     items: list[HistoryItem],
     destination: Path,
     *,
     artist: str = "Not Studio",
     cover_path: Path | None = None,
+    include_track_videos: bool = False,
 ) -> None:
-    """Copy tracks, apply album metadata, and package them with a multi-file CUE."""
-    total = len(items)
-    archive_names: list[str] = []
-    durations: list[float] = []
+    """Package tagged FLACs and, when requested and covered, matching MP4s."""
     with tempfile.TemporaryDirectory(prefix="not-studio-album-") as temp_value:
         temp_dir = Path(temp_value)
-        for index, item in enumerate(items, start=1):
-            source = Path(item.path)
-            title = safe_filename(item.title, f"Track {index:02d}")
-            archive_name = f"{index:02d} - {title}.flac"
-            tagged_copy = temp_dir / archive_name
-            shutil.copy2(source, tagged_copy)
-
-            audio = FLAC(tagged_copy)
-            audio["album"] = album_title
-            audio["title"] = item.title
-            audio["tracknumber"] = f"{index}/{total}"
-            audio["tracktotal"] = str(total)
-            audio["discnumber"] = "1"
-            release_date = (audio.get("date") or [datetime.now(UTC).date().isoformat()])[0]
-            audio["artist"] = artist
-            audio["date"] = release_date
-            audio["year"] = release_date[:4]
-            audio.save()
-            archive_names.append(archive_name)
-            durations.append(float(audio.info.length))
-
-        cue_name = f"{safe_filename(album_title, 'album')}.cue"
-        cue = album_cue(
+        names, paths, durations = await asyncio.to_thread(
+            _prepare_tracks,
             album_title,
-            archive_names,
-            [item.title for item in items],
-            durations,
+            items,
+            temp_dir,
+            artist=artist,
+            cover_path=cover_path,
         )
-        with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_STORED) as archive:
-            for archive_name in archive_names:
-                archive.write(temp_dir / archive_name, archive_name)
-            if cover_path is not None and cover_path.is_file():
-                archive.write(cover_path, f"{safe_filename(album_title, 'album')}.png")
-            archive.writestr(cue_name, cue)
+        if include_track_videos and cover_path is not None and cover_path.is_file():
+            for path in paths:
+                await video_export.render_track_video(path, cover_path, path.with_suffix(".mp4"))
+        cue = album_cue(album_title, names, [item.title for item in items], durations)
+        await asyncio.to_thread(
+            _write_archive,
+            Path(destination),
+            temp_dir,
+            album_title=album_title,
+            album_cue_text=cue,
+            cover_path=cover_path,
+        )

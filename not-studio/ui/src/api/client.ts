@@ -1,6 +1,6 @@
 // Typed client for the Not Studio API.
 
-export type MusicProvider = "stable_audio_local";
+export type MusicProvider = "ace_step_local";
 export type TrackVerdict = "liked" | "unreviewed";
 export type JobStatus = "queued" | "in_progress" | "completed" | "failed" | "cancelled";
 
@@ -92,12 +92,6 @@ export interface Health {
   providers: MusicProviderInfo[];
 }
 
-export interface VideoBackgroundUpload {
-  id: string;
-  filename: string;
-  size_bytes: number;
-}
-
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!(init?.body instanceof FormData)) headers.set("Content-Type", "application/json");
@@ -164,7 +158,7 @@ export const api = {
 
   generateAlbum: (data: unknown) =>
     req<Job>("/studio/albums/generate", { method: "POST", body: body(data) }),
-  downloadAlbum: (data: { title: string; item_ids: string[] }) =>
+  downloadAlbum: (data: { title: string; item_ids: string[]; include_track_videos: boolean }) =>
     downloadReq("/studio/albums/export", data),
   generateTracks: (data: unknown) =>
     req<Job>("/studio/generate", { method: "POST", body: body(data) }),
@@ -195,17 +189,6 @@ export const api = {
       body: data,
     });
   },
-  makeVideo: (data: unknown) =>
-    req<Job>("/studio/videos", { method: "POST", body: body(data) }),
-  uploadVideoBackground: (file: File) => {
-    const data = new FormData();
-    data.append("file", file);
-    return req<VideoBackgroundUpload>("/studio/video-backgrounds", {
-      method: "POST",
-      body: data,
-    });
-  },
-  videos: () => req<HistoryItem[]>("/studio/videos"),
   promptKit: () => req<PromptKit>("/studio/prompt-kit"),
 };
 

@@ -23,42 +23,42 @@ async def preload_generation_model(app: FastAPI) -> None:
     if not settings.preload_local_model_on_startup:
         app.state.model = {
             "status": "disabled",
-            "provider": "stable_audio_local",
-            "model": "medium",
+            "provider": "ace_step_local",
+            "model": "ACE-Step",
             "device": "",
         }
         return
     app.state.model = {
         "status": "loading",
-        "provider": "stable_audio_local",
-        "model": "medium",
+        "provider": "ace_step_local",
+        "model": "ACE-Step",
         "device": "",
     }
-    logger.info("Preloading Stable Audio 3 medium model in the generation worker")
+    logger.info("Preloading ACE-Step in the generation worker")
     try:
-        from .backends.stable_audio import preload_model
+        from .backends.ace_step import preload_model
 
         model_info = await run_in_reusable_process(
-            "stable-audio-local",
+            "ace-step-local",
             preload_model,
-            "medium",
+            "ACE-Step",
         )
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - preload failure must not stop the API
         app.state.model = {
             "status": "failed",
-            "provider": "stable_audio_local",
-            "model": "medium",
+            "provider": "ace_step_local",
+            "model": "ACE-Step",
             "device": "",
             "error": str(exc),
         }
-        logger.exception("Stable Audio 3 model preload failed; API remains available")
+        logger.exception("ACE-Step model preload failed; API remains available")
         return
 
     app.state.model = model_info
     logger.info(
-        "Stable Audio 3 %s model ready on %s",
+        "%s model ready on %s",
         model_info["model"],
         model_info["device"],
     )

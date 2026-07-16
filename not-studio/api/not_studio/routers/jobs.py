@@ -9,7 +9,7 @@ from sqlmodel import select
 from ..constants import utcnow
 from ..deps import get_or_404, get_session
 from ..models import HistoryItem, Job
-from ..tasks.jobs import generate_tracks_job, make_video_job
+from ..tasks.jobs import generate_tracks_job
 from ..tasks.registry import cancel_job_task, start_job_task
 from ..tasks.events import jobs_version, notify_jobs_changed, wait_for_jobs_changed
 
@@ -94,7 +94,6 @@ async def retry(job_id: str, session: AsyncSession = Depends(get_session)) -> Jo
         raise HTTPException(status_code=409, detail="Only failed or cancelled jobs can be retried")
     runners = {
         "generate_tracks": generate_tracks_job,
-        "make_video": make_video_job,
     }
     runner = runners.get(original.type)
     if runner is None:

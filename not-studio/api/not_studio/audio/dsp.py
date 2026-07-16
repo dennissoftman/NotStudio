@@ -1,4 +1,4 @@
-"""Lightweight numpy DSP for generated tracks and rendered mixes.
+"""Lightweight numpy DSP for generated tracks and album exports.
 
 All buffers are float32 of shape ``(num_samples, num_channels)``. No torch — this
 keeps the dashboard installable without the heavy engine deps; the real backends

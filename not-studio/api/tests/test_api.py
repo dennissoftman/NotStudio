@@ -22,8 +22,8 @@ async def test_startup_preloads_model_in_generation_worker(monkeypatch):
         calls.append((name, model))
         return {
             "status": "ready",
-            "provider": "stable_audio_local",
-            "model": "medium",
+            "provider": "ace_step_local",
+            "model": "ACE-Step",
             "device": "mps",
         }
 
@@ -32,7 +32,7 @@ async def test_startup_preloads_model_in_generation_worker(monkeypatch):
 
     await main_module.preload_generation_model(test_app)
 
-    assert calls == [("stable-audio-local", "medium")]
+    assert calls == [("ace-step-local", "ACE-Step")]
     assert test_app.state.model["status"] == "ready"
     assert test_app.state.model["device"] == "mps"
 
@@ -80,8 +80,8 @@ async def test_model_preload_failure_does_not_escape(monkeypatch):
 
     assert test_app.state.model == {
         "status": "failed",
-        "provider": "stable_audio_local",
-        "model": "medium",
+        "provider": "ace_step_local",
+        "model": "ACE-Step",
         "device": "",
         "error": "model unavailable",
     }
@@ -94,7 +94,7 @@ def test_health_reports_music_providers():
         assert health["jobs"] == "local-background"
         assert health["model"]["status"] == "disabled"
         providers = {p["provider"]: p for p in health["providers"]}
-        assert set(providers) == {"stable_audio_local"}
+        assert set(providers) == {"ace_step_local"}
 
 
 def test_jobs_websocket_sends_initial_snapshot():
@@ -134,7 +134,7 @@ def test_startup_marks_stale_running_jobs_failed():
                 type="generate_tracks",
                 status="in_progress",
                 progress=0.12,
-                message="Loading model: medium",
+                message="Loading model: ACE-Step",
             )
             session.add(job)
             await session.commit()
@@ -264,94 +264,13 @@ def test_prompt_kit_exposes_genre_schema_and_review_history():
     assert any(item["genre"] == "deep house" for item in body["taste_profile"]["liked_examples"])
 
 
-def test_video_request_persists_only_track_and_video_decisions(monkeypatch):
-    monkeypatch.setattr("not_studio.tasks.submit.start_job_task", lambda job_id, runner: None)
-    background_id = "a" * 32
-    (get_settings().video_backgrounds_dir / background_id).write_bytes(b"video")
+def test_mix_video_endpoints_are_removed():
     with TestClient(app) as client:
-        response = client.post(
-            "/api/studio/videos",
-            json={
-                "item_ids": ["track-id"],
-                "background_id": background_id,
-            },
-        )
-
-    assert response.status_code == 201
-    assert response.json()["params"] == {
-        "item_ids": ["track-id"],
-        "background_id": background_id,
-    }
-
-
-def test_video_request_rejects_manual_render_controls(monkeypatch):
-    monkeypatch.setattr("not_studio.tasks.submit.start_job_task", lambda job_id, runner: None)
-    background_id = "b" * 32
-    (get_settings().video_backgrounds_dir / background_id).write_bytes(b"video")
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/studio/videos",
-            json={
-                "item_ids": ["track-id"],
-                "background_id": background_id,
-                "visualizer": "waves",
-                "resolution": "2160p",
-                "crossfade_seconds": 4,
-                "title": "Manual title",
-            },
-        )
-
-    assert response.status_code == 422
-    assert {error["loc"][-1] for error in response.json()["detail"]} == {
-        "visualizer",
-        "resolution",
-        "crossfade_seconds",
-        "title",
-    }
-
-
-def test_uploaded_video_background_is_inspected_and_attached_to_render_job(monkeypatch):
-    monkeypatch.setattr("not_studio.tasks.submit.start_job_task", lambda job_id, runner: None)
-    monkeypatch.setattr(
-        "not_studio.video_export.validate_video_input",
-        AsyncMock(return_value=None),
-    )
-
-    with TestClient(app) as client:
-        uploaded = client.post(
+        videos = client.post("/api/studio/videos", json={"item_ids": ["track-id"]})
+        backgrounds = client.post(
             "/api/studio/video-backgrounds",
-            files={"file": ("generated-loop.mkv", b"fake-matroska", "video/x-matroska")},
-        )
-        assert uploaded.status_code == 201
-        background = uploaded.json()
-        response = client.post(
-            "/api/studio/videos",
-            json={"item_ids": ["track-id"], "background_id": background["id"]},
+            files={"file": ("loop.mp4", b"video", "video/mp4")},
         )
 
-    assert background["filename"] == "generated-loop.mkv"
-    assert (
-        get_settings().video_backgrounds_dir / background["id"]
-    ).read_bytes() == b"fake-matroska"
-    assert response.status_code == 201
-    assert response.json()["params"]["background_id"] == background["id"]
-
-
-def test_video_request_rejects_missing_uploaded_background(monkeypatch):
-    monkeypatch.setattr("not_studio.tasks.submit.start_job_task", lambda job_id, runner: None)
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/studio/videos",
-            json={"item_ids": ["track-id"], "background_id": "0" * 32},
-        )
-
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Uploaded video background not found"
-
-
-def test_video_request_requires_a_video_decision(monkeypatch):
-    monkeypatch.setattr("not_studio.tasks.submit.start_job_task", lambda job_id, runner: None)
-    with TestClient(app) as client:
-        response = client.post("/api/studio/videos", json={"item_ids": ["track-id"]})
-
-    assert response.status_code == 422
+    assert videos.status_code == 404
+    assert backgrounds.status_code == 404

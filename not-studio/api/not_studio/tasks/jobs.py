@@ -111,18 +111,18 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
     prompts = list(params.get("prompts") or [])
     album = dict(params.get("album") or {})
     replacement_item_id = params.get("replacement_item_id")
-    provider = "stable_audio_local"
-    model = "medium"
+    provider = "ace_step_local"
+    model = "ACE-Step"
     sr, ch = settings.sample_rate, settings.channels
     if not prompts:
         await update_job(job_id, status="failed", error="no prompts", finished_at=utcnow())
         return {"error": "no prompts"}
 
     try:
-        if reusable_process_busy("stable-audio-local"):
+        if reusable_process_busy("ace-step-local"):
             await update_job(job_id, progress=0.05, message="Queued for local model")
         produced = await run_in_reusable_process(
-            "stable-audio-local",
+            "ace-step-local",
             _render_tracks,
             job_id,
             prompts,
@@ -232,9 +232,9 @@ def _render_tracks(
     channels: int,
     audio_dir: Path,
 ) -> list[tuple[dict[str, Any], str]]:
-    if provider != "stable_audio_local":
+    if provider != "ace_step_local":
         raise ValueError(f"Unknown music provider: {provider}")
-    from ..backends.stable_audio import generate_batch
+    from ..backends.ace_step import generate_batch
 
     def progress(fraction: float, message: str) -> None:
         asyncio.run(update_job(job_id, progress=fraction, message=message))
@@ -245,6 +245,7 @@ def _render_tracks(
     produced = generate_batch(
         prompts,
         sample_rate=sample_rate,
+        channels=channels,
         model=model,
         out_dir=audio_dir / f"gen-{job_id}",
         artist=get_settings().track_author,
@@ -255,139 +256,3 @@ def _render_tracks(
     if should_cancel():
         raise RuntimeError("Track generation cancelled")
     return [(spec, str(path)) for spec, path in produced]
-
-
-async def make_video_job(job_id: str) -> dict[str, Any]:
-    settings = get_settings()
-    await update_job(
-        job_id, status="in_progress", started_at=utcnow(), progress=0.15, message="Loading tracks"
-    )
-
-    async with session_scope() as session:
-        job = await session.get(Job, job_id)
-        if job is None:
-            return {"error": "job row missing"}
-        if job.status == "cancelled":
-            return {"cancelled": True}
-        params = job.params or {}
-        item_ids = list(params.get("item_ids") or [])
-        items = [it for it in [await session.get(HistoryItem, i) for i in item_ids] if it]
-
-    background_id = str(params.get("background_id") or "")
-    background_path = settings.video_backgrounds_dir / background_id
-    if not background_id or not background_path.is_file():
-        await update_job(
-            job_id,
-            status="failed",
-            error="uploaded background is missing",
-            finished_at=utcnow(),
-        )
-        return {"error": "uploaded background is missing"}
-
-    if not items:
-        await update_job(job_id, status="failed", error="no tracks selected", finished_at=utcnow())
-        return {"error": "no tracks"}
-
-    try:
-        out_path, duration, sample_rate, channels = await _render_video(
-            audio_dir=settings.audio_dir,
-            videos_dir=settings.videos_dir,
-            job_id=job_id,
-            paths=[it.path for it in items],
-            titles=[it.title for it in items],
-            background=str(background_path),
-        )
-    except asyncio.CancelledError:
-        await update_job(job_id, status="cancelled", message="Cancelled", finished_at=utcnow())
-        return {"cancelled": True}
-    except Exception as exc:  # noqa: BLE001
-        if await is_job_cancelled(job_id):
-            return {"cancelled": True}
-        await update_job(job_id, status="failed", error=str(exc), finished_at=utcnow())
-        return {"error": str(exc)}
-
-    if await is_job_cancelled(job_id):
-        return {"cancelled": True}
-    async with session_scope() as session:
-        item = HistoryItem(
-            kind="video",
-            title=f"Mix of {len(items)} track{'s' if len(items) != 1 else ''}",
-            job_id=job_id,
-            path=str(out_path),
-            sample_rate=sample_rate,
-            channels=channels,
-            duration_seconds=duration,
-            size_bytes=out_path.stat().st_size if out_path.exists() else 0,
-            meta={
-                "source_item_ids": item_ids,
-                "background_id": background_id,
-                "background_looped": True,
-                "video_codec": "h264",
-                "pixel_format": "yuv420p",
-            },
-        )
-        session.add(item)
-        await session.commit()
-        await session.refresh(item)
-        video_id = item.id
-
-    await update_job(
-        job_id,
-        status="completed",
-        progress=1.0,
-        message="Mix ready",
-        finished_at=utcnow(),
-        result={"video_id": video_id, "path": str(out_path)},
-    )
-    return {"video_id": video_id}
-
-
-async def _render_video(
-    audio_dir: Path,
-    videos_dir: Path,
-    job_id: str,
-    paths: list[str],
-    titles: list[str],
-    background: str,
-) -> tuple[Path, float, int, int]:
-    from .. import video_export
-
-    mix_path = audio_dir / f"mix-{job_id}.flac"
-    progress_queue: asyncio.Queue[tuple[float, str] | None] = asyncio.Queue(maxsize=1)
-
-    def queue_progress(progress: float, message: str) -> None:
-        if progress_queue.full():
-            progress_queue.get_nowait()
-        progress_queue.put_nowait((progress, message))
-
-    async def publish_progress() -> None:
-        while update := await progress_queue.get():
-            progress, message = update
-            await update_job(job_id, progress=progress, message=message)
-
-    publisher = asyncio.create_task(publish_progress())
-
-    def mix_progress(progress: float, message: str) -> None:
-        queue_progress(0.15 + progress * 0.15, message)
-
-    def render_progress(progress: float, message: str) -> None:
-        queue_progress(0.30 + progress * 0.68, message)
-
-    try:
-        duration, starts, sample_rate, channels = await video_export.mix_tracks_to_file(
-            paths,
-            mix_path,
-            on_progress=mix_progress,
-        )
-        video_export.write_cue(mix_path.with_suffix(".cue"), mix_path.name, titles, starts)
-        out_path = videos_dir / f"video-{job_id}.mp4"
-        await video_export.render_video(
-            mix_path,
-            out_path,
-            background=background,
-            on_progress=render_progress,
-        )
-        return out_path, duration, sample_rate, channels
-    finally:
-        await progress_queue.put(None)
-        await publisher

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..constants import utcnow
 from ..models import Job
-from .jobs import generate_tracks_job, make_video_job
+from .jobs import generate_tracks_job
 from .events import notify_jobs_changed
 from .registry import start_job_task
 
@@ -35,24 +35,6 @@ async def submit_generate_tracks(
         enqueued_at=utcnow(),
     )
     return await _submit(session, job, generate_tracks_job)
-
-
-async def submit_make_video(
-    session: AsyncSession,
-    *,
-    item_ids: list[str],
-    background_id: str,
-) -> Job:
-    job = Job(
-        type="make_video",
-        status="queued",
-        params={
-            "item_ids": item_ids,
-            "background_id": background_id,
-        },
-        enqueued_at=utcnow(),
-    )
-    return await _submit(session, job, make_video_job)
 
 
 async def _submit(

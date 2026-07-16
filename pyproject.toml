@@ -1,15 +1,17 @@
 [project]
 name = "not-studio-engine"
 version = "0.1.0"
-description = "Stable Audio generation and mix rendering engine for Not Studio."
+description = "ACE-Step music generation utilities for Not Studio."
 readme = "not-studio/README.md"
 requires-python = ">=3.12"
 dependencies = [
     "mutagen>=1.48.1",
     "pyloudnorm>=0.2.0",
-    "soundfile>=0.14.0",
-    "stable-audio-3",
-    "torch>=2.7.1",
+    "soundfile>=0.13.1",
+    "ace-step",
+    "torch==2.11.0",
+    "torchaudio==2.11.0",
+    "torchvision==0.26.0",
     "tqdm>=4.68.3",
 ]
 
@@ -19,11 +21,5 @@ dev = [
     "ruff>=0.12.2",
 ]
 
-[tool.uv.workspace]
-members = ["stable-audio-3"]
-# Not Studio is a standalone subproject with its own light-weight env; it
-# reuses this engine at runtime via the backend adapters, not as a shared venv.
-exclude = ["not-studio"]
-
 [tool.uv.sources]
-stable-audio-3 = { workspace = true }
+ace-step = { git = "https://github.com/ace-step/ACE-Step.git" }
