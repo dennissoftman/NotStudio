@@ -5,9 +5,9 @@ generation, human review state, history, and album construction.
 
 The high-quality `acestep-v15-sft` music model runs with 50 diffusion steps and
 CFG. It is paired with a device-selected ACE-Step 5 Hz language model for
-thinking and prompt refinement: 1.7B with MLX on Apple Silicon, 4B with vLLM on
-NVIDIA CUDA, and 0.6B with PyTorch on CPU. Missing checkpoints are downloaded
-automatically on first startup.
+thinking and prompt refinement: 0.6B with PyTorch on Apple Silicon and CPU, and
+1.7B with vLLM on NVIDIA CUDA. Missing checkpoints are downloaded automatically
+on first startup.
 
 Install and run:
 

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+python_files=()
+prettier_files=()
+
+while IFS= read -r -d '' file; do
+    case "$file" in
+        *.py | *.pyi)
+            python_files+=("$file")
+            ;;
+        *.js | *.jsx | *.mjs | *.cjs | *.ts | *.tsx | *.json | *.css | *.scss | *.md | *.html | *.yaml | *.yml)
+            prettier_files+=("$file")
+            ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+
+if ((${#python_files[@]})); then
+    echo "Formatting staged Python files with Ruff..."
+    uv run ruff format -- "${python_files[@]}"
+    git add -- "${python_files[@]}"
+fi
+
+if ((${#prettier_files[@]})); then
+    prettier="$repo_root/not-studio/ui/node_modules/prettier/bin/prettier.cjs"
+    if [[ ! -f "$prettier" ]]; then
+        echo "Prettier is not installed. Run the project launcher or yarn install in not-studio/ui." >&2
+        exit 1
+    fi
+
+    echo "Formatting staged frontend and text files with Prettier..."
+    node "$prettier" --write --ignore-unknown -- "${prettier_files[@]}"
+    git add -- "${prettier_files[@]}"
+fi

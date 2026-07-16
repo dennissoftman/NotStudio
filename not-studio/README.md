@@ -15,23 +15,23 @@ workspace built around ACE-Step.
 
 ## Capabilities
 
-| Capability | Where |
-|---|---|
-| Paste-first prompt generation | `ui/src/pages/Generate.tsx`, `/api/studio/generate` |
-| GPT schema + taste export | `/api/studio/prompt-kit` |
-| Human review state | `/api/studio/tracks/{id}/review` |
-| In-place track regeneration | `/api/studio/tracks/{id}/regenerate` |
-| Embedded track artwork | `/api/studio/tracks/{id}/artwork` |
-| Album cover upload | `/api/studio/albums/artwork` |
-| Album ZIP, CUE, and optional MP4 export | `/api/studio/albums/export` |
-| Track history/playback | `/api/studio/tracks`, `/api/history/{id}/audio` |
-| Music generation | Local ACE-Step 1.5 Text2Music |
+| Capability                              | Where                                               |
+| --------------------------------------- | --------------------------------------------------- |
+| Paste-first prompt generation           | `ui/src/pages/Generate.tsx`, `/api/studio/generate` |
+| GPT schema + taste export               | `/api/studio/prompt-kit`                            |
+| Human review state                      | `/api/studio/tracks/{id}/review`                    |
+| In-place track regeneration             | `/api/studio/tracks/{id}/regenerate`                |
+| Embedded track artwork                  | `/api/studio/tracks/{id}/artwork`                   |
+| Album cover upload                      | `/api/studio/albums/artwork`                        |
+| Album ZIP, CUE, and optional MP4 export | `/api/studio/albums/export`                         |
+| Track history/playback                  | `/api/studio/tracks`, `/api/history/{id}/audio`     |
+| Music generation                        | Local ACE-Step 1.5 Text2Music                       |
 
 ACE-Step uses the high-quality `acestep-v15-sft` music checkpoint with 50
 diffusion steps and CFG, then selects its 5 Hz language model by accelerator:
-1.7B/MLX on Apple Silicon, 4B/vLLM on NVIDIA CUDA, and 0.6B/PyTorch on CPU. The
-language model's thinking path is enabled for metadata, prompt refinement, and
-semantic audio-code generation.
+0.6B/PyTorch on Apple Silicon and CPU, and 1.7B/vLLM on NVIDIA CUDA. The language
+model's thinking path is enabled for metadata, prompt refinement, and semantic
+audio-code generation.
 
 ## Quick start
 

@@ -18,9 +18,7 @@ def _language_model_config(device: str) -> tuple[str, str]:
     """Select the 5 Hz LM and its preferred backend for the active device."""
     normalized = device.lower()
     if normalized.startswith("cuda"):
-        return "acestep-5Hz-lm-4B", "vllm"
-    if normalized == "mps":
-        return "acestep-5Hz-lm-1.7B", "mlx"
+        return "acestep-5Hz-lm-1.7B", "vllm"
     return "acestep-5Hz-lm-0.6B", "pt"
 
 

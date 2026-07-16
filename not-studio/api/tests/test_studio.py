@@ -80,7 +80,7 @@ def test_local_ace_step_preload_returns_serializable_readiness(monkeypatch):
     monkeypatch.setattr(
         ace_step,
         "_load_language_model",
-        lambda model: (object(), "acestep-5Hz-lm-1.7B", "mlx"),
+        lambda model: (object(), "acestep-5Hz-lm-0.6B", "pt"),
     )
 
     assert ace_step.preload_model() == {
@@ -89,18 +89,18 @@ def test_local_ace_step_preload_returns_serializable_readiness(monkeypatch):
         "model": "ACE-Step 1.5",
         "checkpoint": "acestep-v15-sft",
         "device": "mps",
-        "language_model": "acestep-5Hz-lm-1.7B",
-        "language_model_backend": "mlx",
+        "language_model": "acestep-5Hz-lm-0.6B",
+        "language_model_backend": "pt",
     }
 
 
 def test_language_model_selection_matches_accelerator():
     assert ace_step._language_model_config("mps") == (
-        "acestep-5Hz-lm-1.7B",
-        "mlx",
+        "acestep-5Hz-lm-0.6B",
+        "pt",
     )
     assert ace_step._language_model_config("cuda:0") == (
-        "acestep-5Hz-lm-4B",
+        "acestep-5Hz-lm-1.7B",
         "vllm",
     )
     assert ace_step._language_model_config("cpu") == (
