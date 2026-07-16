@@ -79,6 +79,31 @@ def _port_in_use(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
+def _yarn_command() -> list[str]:
+    yarn = shutil.which("yarn")
+    if yarn:
+        return [yarn]
+    corepack = shutil.which("corepack")
+    if corepack:
+        return [corepack, "yarn"]
+    raise RuntimeError("Yarn or Corepack is required to prepare the UI environment")
+
+
+def _prepare_dependencies(*, include_ui: bool) -> list[str] | None:
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError("uv is required to prepare the API environment")
+    _log("dev", "syncing API dependencies")
+    subprocess.run([uv, "sync", "--locked"], cwd=_API_DIR, check=True)
+
+    if not include_ui:
+        return None
+    yarn = _yarn_command()
+    _log("dev", "installing UI dependencies")
+    subprocess.run([*yarn, "install", "--immutable"], cwd=_UI_DIR, check=True)
+    return yarn
+
+
 def main() -> None:
     args = set(sys.argv[1:])
     if "--help" in args or "-h" in args:
@@ -98,6 +123,8 @@ def main() -> None:
         )
         return
 
+    include_ui = "--no-ui" not in args
+    yarn = _prepare_dependencies(include_ui=include_ui)
     bindir = Path(sys.executable).parent
     api_command = [
         str(bindir / "uvicorn"),
@@ -121,14 +148,9 @@ def main() -> None:
             api_env,
         )
     ]
-    if "--no-ui" not in args:
-        yarn = shutil.which("yarn")
-        if yarn and (_UI_DIR / "node_modules").is_dir():
-            procs.append(_Proc("ui", [yarn, "production" if production else "dev"], _UI_DIR))
-        elif yarn:
-            _log("ui", "skipped: run `yarn install` in ui/ first.")
-        else:
-            _log("ui", "skipped: Yarn not found on PATH.")
+    if include_ui:
+        assert yarn is not None
+        procs.append(_Proc("ui", [*yarn, "production" if production else "dev"], _UI_DIR))
 
     _log("dev", f"launching: {', '.join(p.name for p in procs)}")
     for proc in procs:

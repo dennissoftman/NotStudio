@@ -20,6 +20,9 @@ Or start the API and UI together:
 uv run dev
 ```
 
+The combined `dev` and `prod` launchers run `uv sync --locked` and
+`yarn install --immutable` before starting their service processes.
+
 Jobs are visible through `/api/jobs`; live snapshots are streamed at
 `/api/jobs/ws`. Startup warms ACE-Step asynchronously in the persistent
 generation worker. `/api/health` stays available during warmup and reports the

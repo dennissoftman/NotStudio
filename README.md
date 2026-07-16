@@ -44,21 +44,15 @@ matching its library installation instructions.
 
 ## Quick start
 
-Install the UI and API dependencies:
+Start the local development services:
 
 ```bash
-cd not-studio/ui
-yarn install
-
-cd ../api
-uv sync
-```
-
-Then, from `not-studio/api/`, start both services:
-
-```bash
+cd not-studio/api
 uv run dev
 ```
+
+The launcher runs `uv sync --locked` and `yarn install --immutable` before
+starting any API or UI process. A failed dependency sync stops startup.
 
 The UI is available at `http://localhost:5173`, the API at
 `http://localhost:8001`, and the interactive API docs at

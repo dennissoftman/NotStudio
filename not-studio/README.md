@@ -30,12 +30,13 @@ workspace built around ACE-Step.
 ## Quick start
 
 ```bash
-cd ui && yarn install
-cd ../api && uv sync
+cd api
 uv run dev
 ```
 
-`uv sync` installs ACE-Step 1.5 from its
+Before starting either service, the launcher runs `uv sync --locked` for the
+API and `yarn install --immutable` for the UI. Dependency preparation failures
+stop startup. `uv sync` installs ACE-Step 1.5 from its
 [official Git repository](https://github.com/ace-step/ACE-Step-1.5).
 `uv run dev` starts the API on `http://localhost:8001` and the UI on
 `http://localhost:5173`. Generation jobs run in cancellable worker processes,
