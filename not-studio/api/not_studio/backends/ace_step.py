@@ -9,8 +9,19 @@ from typing import Any, Literal
 from ..audio import dsp
 
 MODEL_NAME = "ACE-Step 1.5"
-MODEL_CONFIG = "acestep-v15-turbo"
+MODEL_CONFIG = "acestep-v15-sft"
 _MODELS: dict[str, Any] = {}
+_LANGUAGE_MODELS: dict[tuple[str, str], Any] = {}
+
+
+def _language_model_config(device: str) -> tuple[str, str]:
+    """Select the 5 Hz LM and its preferred backend for the active device."""
+    normalized = device.lower()
+    if normalized.startswith("cuda"):
+        return "acestep-5Hz-lm-4B", "vllm"
+    if normalized == "mps":
+        return "acestep-5Hz-lm-1.7B", "mlx"
+    return "acestep-5Hz-lm-0.6B", "pt"
 
 
 @dataclass(frozen=True)
@@ -45,14 +56,50 @@ def _load_model(model_name: str = MODEL_NAME) -> Any:
     return model
 
 
+def _load_language_model(model: Any) -> tuple[Any, str, str]:
+    """Load the device-appropriate 5 Hz language model once per worker."""
+    from acestep.llm_inference import LLMHandler
+    from acestep.model_downloader import ensure_lm_model, get_checkpoints_dir
+
+    device = str(getattr(model, "device", "cpu"))
+    language_model_name, backend = _language_model_config(device)
+    cache_key = (device, language_model_name)
+    language_model = _LANGUAGE_MODELS.get(cache_key)
+    if language_model is None:
+        checkpoint_dir = get_checkpoints_dir()
+        available, status = ensure_lm_model(
+            model_name=language_model_name,
+            checkpoints_dir=checkpoint_dir,
+        )
+        if not available:
+            raise RuntimeError(f"ACE-Step language model download failed: {status}")
+
+        language_model = LLMHandler()
+        status, ready = language_model.initialize(
+            checkpoint_dir=str(checkpoint_dir),
+            lm_model_path=language_model_name,
+            backend=backend,
+            device=device,
+            offload_to_cpu=bool(getattr(model, "offload_to_cpu", False)),
+        )
+        if not ready:
+            raise RuntimeError(f"ACE-Step language model failed to initialize: {status}")
+        _LANGUAGE_MODELS[cache_key] = language_model
+    return language_model, language_model_name, backend
+
+
 def preload_model(model: str = MODEL_NAME) -> dict[str, str]:
     """Load ACE-Step in this worker and return serializable readiness data."""
     loaded_model = _load_model(model)
+    _, language_model_name, language_model_backend = _load_language_model(loaded_model)
     return {
         "status": "ready",
         "provider": "ace_step_local",
         "model": MODEL_NAME,
+        "checkpoint": MODEL_CONFIG,
         "device": str(getattr(loaded_model, "device", "unknown")),
+        "language_model": language_model_name,
+        "language_model_backend": language_model_backend,
     }
 
 
@@ -72,7 +119,9 @@ def _remove_sidecar(audio_path: Path) -> None:
     audio_path.with_name(f"{audio_path.stem}_input_params.json").unlink(missing_ok=True)
 
 
-def _run_generation(model: Any, request: GenerationInput, save_dir: Path) -> Any:
+def _run_generation(
+    model: Any, language_model: Any, request: GenerationInput, save_dir: Path
+) -> Any:
     from acestep.inference import GenerationConfig, GenerationParams, generate_music
 
     params = GenerationParams(
@@ -81,14 +130,16 @@ def _run_generation(model: Any, request: GenerationInput, save_dir: Path) -> Any
         lyrics="[Instrumental]",
         instrumental=True,
         duration=request.duration,
-        thinking=False,
-        use_cot_metas=False,
-        use_cot_caption=False,
+        inference_steps=50,
+        guidance_scale=7.0,
+        thinking=True,
+        use_cot_metas=True,
+        use_cot_caption=True,
         use_cot_language=False,
-        shift=3.0,
+        shift=1.0,
     )
     config = GenerationConfig(batch_size=1, audio_format="wav")
-    result = generate_music(model, None, params, config, save_dir=str(save_dir))
+    result = generate_music(model, language_model, params, config, save_dir=str(save_dir))
     if not result.success:
         raise RuntimeError(f"ACE-Step 1.5 generation failed: {result.error}")
     return result
@@ -96,6 +147,7 @@ def _run_generation(model: Any, request: GenerationInput, save_dir: Path) -> Any
 
 def _generate_audio_file(
     model: Any,
+    language_model: Any,
     request: GenerationInput,
     output_path: Path,
     *,
@@ -107,7 +159,7 @@ def _generate_audio_file(
         raise ValueError("Only ACE-Step text-to-music generation is enabled for now")
 
     raw_path = output_path.with_suffix(".ace-step.wav")
-    result = _run_generation(model, request, output_path.parent)
+    result = _run_generation(model, language_model, request, output_path.parent)
     generated_path = _generated_path(result, raw_path)
     try:
         data = dsp.load_audio_file(str(generated_path), sample_rate, channels)
@@ -136,8 +188,11 @@ def generate_batch(
     total = max(1, len(prompts))
 
     if on_progress:
-        on_progress(0.12, f"Loading model: {MODEL_NAME}")
+        on_progress(0.12, f"Loading models: {MODEL_NAME}")
     loaded_model = _load_model(model)
+    language_model, language_model_name, _ = _load_language_model(loaded_model)
+    if on_progress:
+        on_progress(0.12, f"Using language model: {language_model_name}")
 
     produced: list[tuple[dict[str, Any], Path]] = []
     for index, spec in enumerate(prompts, start=1):
@@ -157,6 +212,7 @@ def generate_batch(
         path = out_dir / f"{_slugify(title)}.flac"
         _generate_audio_file(
             loaded_model,
+            language_model,
             GenerationInput(prompt=prompt, duration=duration),
             path,
             sample_rate=sample_rate,

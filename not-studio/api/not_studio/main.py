@@ -58,9 +58,10 @@ async def preload_generation_model(app: FastAPI) -> None:
 
     app.state.model = model_info
     logger.info(
-        "%s model ready on %s",
+        "%s model ready on %s with %s",
         model_info["model"],
         model_info["device"],
+        model_info.get("language_model", "no language model"),
     )
 
 

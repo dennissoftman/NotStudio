@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import sys
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,8 +35,13 @@ def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
     monkeypatch.setattr(ace_step, "_load_model", lambda model_name: object())
     monkeypatch.setattr(
         ace_step,
+        "_load_language_model",
+        lambda model: (object(), "acestep-5Hz-lm-0.6B", "pt"),
+    )
+    monkeypatch.setattr(
+        ace_step,
         "_generate_audio_file",
-        lambda model, request, path, **kwargs: path.write_bytes(b"stub"),
+        lambda model, language_model, request, path, **kwargs: path.write_bytes(b"stub"),
     )
     monkeypatch.setattr(
         ace_step.dsp,
@@ -56,7 +62,8 @@ def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
     assert len(produced) == 2
     assert all(path.exists() for _, path in produced)
     messages = [m for _, m in updates]
-    assert any("Loading model" in m for m in messages)
+    assert any("Loading models" in m for m in messages)
+    assert any("acestep-5Hz-lm-0.6B" in m for m in messages)
     assert any("Rendering 1/2: Track One" in m for m in messages)
     assert any("1/2" in m for m in messages) and any("2/2" in m for m in messages)
     # progress is monotonic and ends near-complete (before the import/persist step)
@@ -70,17 +77,92 @@ def test_local_ace_step_preload_returns_serializable_readiness(monkeypatch):
         device = "mps"
 
     monkeypatch.setattr(ace_step, "_load_model", lambda model_name: Model())
+    monkeypatch.setattr(
+        ace_step,
+        "_load_language_model",
+        lambda model: (object(), "acestep-5Hz-lm-1.7B", "mlx"),
+    )
 
     assert ace_step.preload_model() == {
         "status": "ready",
         "provider": "ace_step_local",
         "model": "ACE-Step 1.5",
+        "checkpoint": "acestep-v15-sft",
         "device": "mps",
+        "language_model": "acestep-5Hz-lm-1.7B",
+        "language_model_backend": "mlx",
     }
+
+
+def test_language_model_selection_matches_accelerator():
+    assert ace_step._language_model_config("mps") == (
+        "acestep-5Hz-lm-1.7B",
+        "mlx",
+    )
+    assert ace_step._language_model_config("cuda:0") == (
+        "acestep-5Hz-lm-4B",
+        "vllm",
+    )
+    assert ace_step._language_model_config("cpu") == (
+        "acestep-5Hz-lm-0.6B",
+        "pt",
+    )
+
+
+def test_music_model_loads_high_quality_sft_checkpoint(monkeypatch):
+    calls = {}
+
+    class Handler:
+        def initialize_service(self, **kwargs):
+            calls.update(kwargs)
+            return "ready", True
+
+    monkeypatch.setitem(sys.modules, "acestep.handler", SimpleNamespace(AceStepHandler=Handler))
+    ace_step._MODELS.clear()
+    try:
+        ace_step._load_model()
+    finally:
+        ace_step._MODELS.clear()
+
+    assert calls["config_path"] == "acestep-v15-sft"
+    assert calls["device"] == "auto"
+
+
+def test_sft_generation_uses_full_diffusion_and_cfg(tmp_path, monkeypatch):
+    calls = {}
+
+    def generate_music(model, language_model, params, config, save_dir):
+        calls.update(params=params, config=config)
+        return SimpleNamespace(success=True)
+
+    inference_module = SimpleNamespace(
+        GenerationParams=lambda **kwargs: SimpleNamespace(**kwargs),
+        GenerationConfig=lambda **kwargs: SimpleNamespace(**kwargs),
+        generate_music=generate_music,
+    )
+    monkeypatch.setitem(sys.modules, "acestep.inference", inference_module)
+
+    result = ace_step._run_generation(
+        object(),
+        object(),
+        ace_step.GenerationInput(prompt="detailed composition", duration=180),
+        tmp_path,
+    )
+
+    assert result.success is True
+    assert calls["params"].inference_steps == 50
+    assert calls["params"].guidance_scale == 7.0
+    assert calls["params"].shift == 1.0
+    assert calls["params"].thinking is True
 
 
 def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
     monkeypatch.setattr(ace_step, "_load_model", lambda model_name: object())
+    monkeypatch.setattr(
+        ace_step,
+        "_load_language_model",
+        lambda model: (object(), "acestep-5Hz-lm-0.6B", "pt"),
+    )
 
     try:
         ace_step.generate_batch(
@@ -100,7 +182,7 @@ def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
 def test_generate_audio_uses_ace_step_text2music_without_lyrics(tmp_path, monkeypatch):
     calls = {}
 
-    def fake_run_generation(model, request, save_dir):
+    def fake_run_generation(model, language_model, request, save_dir):
         calls.update(
             task=request.task,
             lyrics=request.lyrics,
@@ -116,6 +198,7 @@ def test_generate_audio_uses_ace_step_text2music_without_lyrics(tmp_path, monkey
     monkeypatch.setattr(ace_step, "_run_generation", fake_run_generation)
     output = tmp_path / "track.flac"
     ace_step._generate_audio_file(
+        object(),
         object(),
         ace_step.GenerationInput(prompt="long track", duration=180),
         output,

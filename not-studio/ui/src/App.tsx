@@ -64,7 +64,7 @@ function Sidebar() {
             }
           >
             {health?.model?.status === "ready"
-              ? `${health.model.model} ready`
+              ? `${health.model.language_model?.replace("acestep-5Hz-lm-", "LM ") ?? health.model.model} ready`
               : (health?.model?.status ?? "offline")}
           </span>
         </div>

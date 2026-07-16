@@ -86,7 +86,10 @@ export interface Health {
     status: "loading" | "ready" | "failed" | "disabled" | "skipped";
     provider: string;
     model: string;
+    checkpoint?: string;
     device: string;
+    language_model?: string;
+    language_model_backend?: string;
     error?: string;
   } | null;
   providers: MusicProviderInfo[];

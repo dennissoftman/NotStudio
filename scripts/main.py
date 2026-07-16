@@ -39,7 +39,7 @@ def load_model():
     model = AceStepHandler()
     status, ready = model.initialize_service(
         project_root="",
-        config_path="acestep-v15-turbo",
+        config_path="acestep-v15-sft",
         device="auto",
     )
     if not ready:
@@ -68,11 +68,13 @@ def save_generated_audio(
             lyrics="[Instrumental]",
             instrumental=True,
             duration=duration,
+            inference_steps=50,
+            guidance_scale=7.0,
             thinking=False,
             use_cot_metas=False,
             use_cot_caption=False,
             use_cot_language=False,
-            shift=3.0,
+            shift=1.0,
         ),
         GenerationConfig(batch_size=1, audio_format="wav"),
         save_dir=str(output_path.parent),

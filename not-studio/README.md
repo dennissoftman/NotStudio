@@ -27,6 +27,12 @@ workspace built around ACE-Step.
 | Track history/playback | `/api/studio/tracks`, `/api/history/{id}/audio` |
 | Music generation | Local ACE-Step 1.5 Text2Music |
 
+ACE-Step uses the high-quality `acestep-v15-sft` music checkpoint with 50
+diffusion steps and CFG, then selects its 5 Hz language model by accelerator:
+1.7B/MLX on Apple Silicon, 4B/vLLM on NVIDIA CUDA, and 0.6B/PyTorch on CPU. The
+language model's thinking path is enabled for metadata, prompt refinement, and
+semantic audio-code generation.
+
 ## Quick start
 
 ```bash
@@ -48,9 +54,11 @@ starts the API without reload on `0.0.0.0:8081`.
 
 ## Prompt plans and generation
 
-Not Studio does not run an embedded LLM. The UI exposes a copyable GPT prompt
-kit containing the exact JSON schema, an example, and up to 20 recent liked
-prompts. The top-level object requires a `prompts` list; `album_title`, `notes`,
+Not Studio does not use its embedded ACE-Step language model to create the
+album plan. The UI exposes a copyable GPT prompt kit containing the exact JSON
+schema, an example, and up to 20 recent liked prompts. After the plan is pasted,
+the local language model refines each music prompt and produces semantic audio
+codes. The top-level object requires a `prompts` list; `album_title`, `notes`,
 and `artwork_prompt` provide album defaults. Every prompt requires `title`,
 `genre`, `prompt`, and `duration`.
 
