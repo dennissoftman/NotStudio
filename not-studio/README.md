@@ -30,7 +30,7 @@ workspace built around ACE-Step.
 ## Quick start
 
 ```bash
-cd ui && npm install
+cd ui && yarn install
 cd ../api && uv sync
 uv run dev
 ```
@@ -97,7 +97,7 @@ uv run python -m pytest
 uv lock --check
 
 cd ../ui
-npm run build
+yarn build
 ```
 
 Generated and exported FLACs include artist, year, and ISO release-date tags.

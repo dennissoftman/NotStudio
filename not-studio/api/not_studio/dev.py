@@ -122,13 +122,13 @@ def main() -> None:
         )
     ]
     if "--no-ui" not in args:
-        npm = shutil.which("npm")
-        if npm and (_UI_DIR / "node_modules").is_dir():
-            procs.append(_Proc("ui", [npm, "run", "production" if production else "dev"], _UI_DIR))
-        elif npm:
-            _log("ui", "skipped: run `npm install` in ui/ first.")
+        yarn = shutil.which("yarn")
+        if yarn and (_UI_DIR / "node_modules").is_dir():
+            procs.append(_Proc("ui", [yarn, "production" if production else "dev"], _UI_DIR))
+        elif yarn:
+            _log("ui", "skipped: run `yarn install` in ui/ first.")
         else:
-            _log("ui", "skipped: npm not found on PATH.")
+            _log("ui", "skipped: Yarn not found on PATH.")
 
     _log("dev", f"launching: {', '.join(p.name for p in procs)}")
     for proc in procs:

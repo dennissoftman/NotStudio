@@ -38,7 +38,7 @@ matching its library installation instructions.
 
 - Python 3.11 or newer for the application API
 - [`uv`](https://docs.astral.sh/uv/)
-- Node.js and npm
+- Node.js and Corepack-enabled Yarn
 - FFmpeg on `PATH` when per-track album MP4s are requested
 - Network access on first model startup so ACE-Step can download its checkpoints
 
@@ -48,7 +48,7 @@ Install the UI and API dependencies:
 
 ```bash
 cd not-studio/ui
-npm install
+yarn install
 
 cd ../api
 uv sync
@@ -106,7 +106,7 @@ uv lock --check
 Run frontend checks from `not-studio/ui/`:
 
 ```bash
-npm run build
+yarn build
 ```
 
 ## Documentation

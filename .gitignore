@@ -30,6 +30,7 @@ htmlcov/
 
 # Tooling caches
 .cache/
+.yarn/
 
 # Notebook and runtime state
 .ipynb_checkpoints/
