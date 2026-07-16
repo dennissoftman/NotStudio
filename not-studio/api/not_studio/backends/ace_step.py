@@ -8,7 +8,8 @@ from typing import Any, Literal
 
 from ..audio import dsp
 
-MODEL_NAME = "ACE-Step"
+MODEL_NAME = "ACE-Step 1.5"
+MODEL_CONFIG = "acestep-v15-turbo"
 _MODELS: dict[str, Any] = {}
 
 
@@ -30,14 +31,16 @@ def _slugify(value: str) -> str:
 def _load_model(model_name: str = MODEL_NAME) -> Any:
     model = _MODELS.get(model_name)
     if model is None:
-        import torch
-        from acestep.pipeline_ace_step import ACEStepPipeline
+        from acestep.handler import AceStepHandler
 
-        dtype = "bfloat16" if torch.cuda.is_available() else "float32"
-        model = ACEStepPipeline(dtype=dtype)
-        # Construction alone does not load or download the checkpoints. Loading
-        # here makes startup readiness reflect a model that can actually generate.
-        model.load_checkpoint(model.checkpoint_dir)
+        model = AceStepHandler()
+        status, ready = model.initialize_service(
+            project_root="",
+            config_path=MODEL_CONFIG,
+            device="auto",
+        )
+        if not ready:
+            raise RuntimeError(f"ACE-Step 1.5 failed to initialize: {status}")
         _MODELS[model_name] = model
     return model
 
@@ -54,6 +57,9 @@ def preload_model(model: str = MODEL_NAME) -> dict[str, str]:
 
 
 def _generated_path(result: Any, requested_path: Path) -> Path:
+    audios = getattr(result, "audios", None)
+    if audios and isinstance(audios[0], dict) and audios[0].get("path"):
+        return Path(audios[0]["path"])
     if isinstance(result, list) and result and isinstance(result[0], (str, Path)):
         return Path(result[0])
     if requested_path.is_file():
@@ -62,7 +68,30 @@ def _generated_path(result: Any, requested_path: Path) -> Path:
 
 
 def _remove_sidecar(audio_path: Path) -> None:
+    audio_path.with_suffix(".json").unlink(missing_ok=True)
     audio_path.with_name(f"{audio_path.stem}_input_params.json").unlink(missing_ok=True)
+
+
+def _run_generation(model: Any, request: GenerationInput, save_dir: Path) -> Any:
+    from acestep.inference import GenerationConfig, GenerationParams, generate_music
+
+    params = GenerationParams(
+        task_type=request.task,
+        caption=request.prompt,
+        lyrics="[Instrumental]",
+        instrumental=True,
+        duration=request.duration,
+        thinking=False,
+        use_cot_metas=False,
+        use_cot_caption=False,
+        use_cot_language=False,
+        shift=3.0,
+    )
+    config = GenerationConfig(batch_size=1, audio_format="wav")
+    result = generate_music(model, None, params, config, save_dir=str(save_dir))
+    if not result.success:
+        raise RuntimeError(f"ACE-Step 1.5 generation failed: {result.error}")
+    return result
 
 
 def _generate_audio_file(
@@ -78,15 +107,7 @@ def _generate_audio_file(
         raise ValueError("Only ACE-Step text-to-music generation is enabled for now")
 
     raw_path = output_path.with_suffix(".ace-step.wav")
-    result = model(
-        format="wav",
-        audio_duration=request.duration,
-        prompt=request.prompt,
-        lyrics="",
-        task=request.task,
-        save_path=str(raw_path),
-        batch_size=1,
-    )
+    result = _run_generation(model, request, output_path.parent)
     generated_path = _generated_path(result, raw_path)
     try:
         data = dsp.load_audio_file(str(generated_path), sample_rate, channels)

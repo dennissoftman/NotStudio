@@ -112,7 +112,7 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
     album = dict(params.get("album") or {})
     replacement_item_id = params.get("replacement_item_id")
     provider = "ace_step_local"
-    model = "ACE-Step"
+    model = "ACE-Step 1.5"
     sr, ch = settings.sample_rate, settings.channels
     if not prompts:
         await update_job(job_id, status="failed", error="no prompts", finished_at=utcnow())

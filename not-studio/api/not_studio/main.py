@@ -24,14 +24,14 @@ async def preload_generation_model(app: FastAPI) -> None:
         app.state.model = {
             "status": "disabled",
             "provider": "ace_step_local",
-            "model": "ACE-Step",
+            "model": "ACE-Step 1.5",
             "device": "",
         }
         return
     app.state.model = {
         "status": "loading",
         "provider": "ace_step_local",
-        "model": "ACE-Step",
+        "model": "ACE-Step 1.5",
         "device": "",
     }
     logger.info("Preloading ACE-Step in the generation worker")
@@ -41,7 +41,7 @@ async def preload_generation_model(app: FastAPI) -> None:
         model_info = await run_in_reusable_process(
             "ace-step-local",
             preload_model,
-            "ACE-Step",
+            "ACE-Step 1.5",
         )
     except asyncio.CancelledError:
         raise
@@ -49,7 +49,7 @@ async def preload_generation_model(app: FastAPI) -> None:
         app.state.model = {
             "status": "failed",
             "provider": "ace_step_local",
-            "model": "ACE-Step",
+            "model": "ACE-Step 1.5",
             "device": "",
             "error": str(exc),
         }

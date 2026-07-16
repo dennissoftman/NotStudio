@@ -4,6 +4,7 @@ import asyncio
 import io
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import soundfile as sf
@@ -47,7 +48,7 @@ def test_generate_batch_reports_per_track_progress(tmp_path, monkeypatch):
         prompts,
         sample_rate=44100,
         channels=2,
-        model="ACE-Step",
+        model="ACE-Step 1.5",
         out_dir=tmp_path / "out",
         on_progress=lambda frac, msg: updates.append((round(frac, 3), msg)),
     )
@@ -73,7 +74,7 @@ def test_local_ace_step_preload_returns_serializable_readiness(monkeypatch):
     assert ace_step.preload_model() == {
         "status": "ready",
         "provider": "ace_step_local",
-        "model": "ACE-Step",
+        "model": "ACE-Step 1.5",
         "device": "mps",
     }
 
@@ -86,7 +87,7 @@ def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
             [{"title": "x", "prompt": "y", "duration": 5}],
             sample_rate=44100,
             channels=2,
-            model="ACE-Step",
+            model="ACE-Step 1.5",
             out_dir=tmp_path / "out",
             should_cancel=lambda: True,
         )
@@ -99,18 +100,23 @@ def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):
 def test_generate_audio_uses_ace_step_text2music_without_lyrics(tmp_path, monkeypatch):
     calls = {}
 
-    class Model:
-        def __call__(self, **kwargs):
-            calls.update(kwargs)
-            sf.write(kwargs["save_path"], np.zeros((800, 2)), 8000)
-            return [kwargs["save_path"], {"task": kwargs["task"]}]
+    def fake_run_generation(model, request, save_dir):
+        calls.update(
+            task=request.task,
+            lyrics=request.lyrics,
+            duration=request.duration,
+        )
+        path = save_dir / "generated.wav"
+        sf.write(path, np.zeros((800, 2)), 8000)
+        return SimpleNamespace(success=True, audios=[{"path": str(path)}])
 
     monkeypatch.setattr(
         ace_step.dsp, "normalize_loudness_safely", lambda data, *args, **kwargs: data
     )
+    monkeypatch.setattr(ace_step, "_run_generation", fake_run_generation)
     output = tmp_path / "track.flac"
     ace_step._generate_audio_file(
-        Model(),
+        object(),
         ace_step.GenerationInput(prompt="long track", duration=180),
         output,
         sample_rate=8000,
@@ -119,7 +125,7 @@ def test_generate_audio_uses_ace_step_text2music_without_lyrics(tmp_path, monkey
 
     assert calls["task"] == "text2music"
     assert calls["lyrics"] == ""
-    assert calls["audio_duration"] == 180
+    assert calls["duration"] == 180
     assert output.is_file()
 
 

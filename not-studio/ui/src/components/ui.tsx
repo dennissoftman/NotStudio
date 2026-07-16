@@ -98,7 +98,7 @@ let activeAudioPlayer: Howl | null = null;
 
 export function AudioPlayer({ src, label }: { src: string; label: string }) {
   const sound = useRef<Howl | null>(null);
-  const frame = useRef<number | null>(null);
+  const progressTimer = useRef<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [position, setPosition] = useState(0);
@@ -110,50 +110,60 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
     setPosition(0);
     setError("");
 
-    const stopFrame = () => {
-      if (frame.current !== null) cancelAnimationFrame(frame.current);
-      frame.current = null;
+    let player: Howl;
+    const stopProgressTimer = () => {
+      if (progressTimer.current !== null) window.clearInterval(progressTimer.current);
+      progressTimer.current = null;
     };
-    const updatePosition = () => {
-      const current = sound.current;
-      if (!current) return;
-      const seek = current.seek();
+    const syncProgress = () => {
+      const seek = player.seek();
       setPosition(typeof seek === "number" ? seek : 0);
-      if (current.playing()) frame.current = requestAnimationFrame(updatePosition);
+      const nextDuration = player.duration();
+      if (Number.isFinite(nextDuration) && nextDuration > 0) setDuration(nextDuration);
     };
-    const player = new Howl({
+    const startProgressTimer = () => {
+      stopProgressTimer();
+      syncProgress();
+      progressTimer.current = window.setInterval(syncProgress, 100);
+    };
+    player = new Howl({
       src: [src],
       format: ["flac"],
       html5: true,
       preload: "metadata",
-      onload: () => setDuration(player.duration()),
+      onload: syncProgress,
       onplay: () => {
         setPlaying(true);
-        stopFrame();
-        updatePosition();
+        startProgressTimer();
       },
       onpause: () => {
         setPlaying(false);
-        stopFrame();
+        syncProgress();
+        stopProgressTimer();
       },
       onstop: () => {
         setPlaying(false);
         setPosition(0);
-        stopFrame();
+        stopProgressTimer();
       },
+      onseek: syncProgress,
       onend: () => {
         setPlaying(false);
         setPosition(player.duration());
-        stopFrame();
+        stopProgressTimer();
         if (activeAudioPlayer === player) activeAudioPlayer = null;
       },
       onloaderror: (_id, cause) => setError(`Could not load audio (${String(cause)})`),
-      onplayerror: (_id, cause) => setError(`Could not play audio (${String(cause)})`),
+      onplayerror: (_id, cause) => {
+        setPlaying(false);
+        stopProgressTimer();
+        setError(`Could not play audio (${String(cause)})`);
+      },
     });
     sound.current = player;
 
     return () => {
-      stopFrame();
+      stopProgressTimer();
       if (activeAudioPlayer === player) activeAudioPlayer = null;
       player.unload();
       sound.current = null;
@@ -172,6 +182,8 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
     setError("");
     player.play();
   };
+
+  const progressPercent = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
 
   return (
     <div className="audio-player" title={error || label}>
@@ -193,6 +205,9 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
         max={duration || 0}
         step={0.1}
         value={Math.min(position, duration || 0)}
+        style={{
+          background: `linear-gradient(to right, rgb(192 132 252) ${progressPercent}%, rgb(51 65 85) ${progressPercent}%)`,
+        }}
         aria-label={`Seek ${label}`}
         onChange={(event) => {
           const next = Number(event.target.value);

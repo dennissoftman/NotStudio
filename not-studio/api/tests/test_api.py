@@ -23,7 +23,7 @@ async def test_startup_preloads_model_in_generation_worker(monkeypatch):
         return {
             "status": "ready",
             "provider": "ace_step_local",
-            "model": "ACE-Step",
+            "model": "ACE-Step 1.5",
             "device": "mps",
         }
 
@@ -32,7 +32,7 @@ async def test_startup_preloads_model_in_generation_worker(monkeypatch):
 
     await main_module.preload_generation_model(test_app)
 
-    assert calls == [("ace-step-local", "ACE-Step")]
+    assert calls == [("ace-step-local", "ACE-Step 1.5")]
     assert test_app.state.model["status"] == "ready"
     assert test_app.state.model["device"] == "mps"
 
@@ -81,7 +81,7 @@ async def test_model_preload_failure_does_not_escape(monkeypatch):
     assert test_app.state.model == {
         "status": "failed",
         "provider": "ace_step_local",
-        "model": "ACE-Step",
+        "model": "ACE-Step 1.5",
         "device": "",
         "error": "model unavailable",
     }
@@ -134,7 +134,7 @@ def test_startup_marks_stale_running_jobs_failed():
                 type="generate_tracks",
                 status="in_progress",
                 progress=0.12,
-                message="Loading model: ACE-Step",
+                message="Loading model: ACE-Step 1.5",
             )
             session.add(job)
             await session.commit()

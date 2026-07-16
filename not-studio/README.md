@@ -7,7 +7,7 @@ workspace built around ACE-Step.
 
 1. Copy the GPT prompt kit from the Generate page.
 2. Ask GPT for a JSON album plan using the included schema and taste profile.
-3. Paste the plan and generate instrumental tracks with ACE-Step Text2Music.
+3. Paste the plan and generate instrumental tracks with ACE-Step 1.5 Text2Music.
 4. Listen, keep favorites, or regenerate a candidate in place.
 5. Organize tracks into albums and attach a dedicated album cover.
 6. Build the track order and download tagged FLACs plus a CUE in one ZIP.
@@ -25,7 +25,7 @@ workspace built around ACE-Step.
 | Album cover upload | `/api/studio/albums/artwork` |
 | Album ZIP, CUE, and optional MP4 export | `/api/studio/albums/export` |
 | Track history/playback | `/api/studio/tracks`, `/api/history/{id}/audio` |
-| Music generation | Local ACE-Step Text2Music |
+| Music generation | Local ACE-Step 1.5 Text2Music |
 
 ## Quick start
 
@@ -35,8 +35,8 @@ cd ../api && uv sync
 uv run dev
 ```
 
-`uv sync` installs ACE-Step from its
-[official Git repository](https://github.com/ace-step/ACE-Step#-installation).
+`uv sync` installs ACE-Step 1.5 from its
+[official Git repository](https://github.com/ace-step/ACE-Step-1.5).
 `uv run dev` starts the API on `http://localhost:8001` and the UI on
 `http://localhost:5173`. Generation jobs run in cancellable worker processes,
 and job state reaches the UI through a WebSocket instead of browser polling.
@@ -53,7 +53,7 @@ prompts. The top-level object requires a `prompts` list; `album_title`, `notes`,
 and `artwork_prompt` provide album defaults. Every prompt requires `title`,
 `genre`, `prompt`, and `duration`.
 
-The ACE-Step adapter currently fixes the task to prompt-first instrumental
+The ACE-Step 1.5 adapter currently fixes the task to prompt-first instrumental
 `text2music` with empty lyrics, preserving the existing product flow. The
 adapter keeps ACE-Step task and lyrics inputs behind an explicit request
 boundary so lyric-driven, retake, edit, and extend workflows can be introduced

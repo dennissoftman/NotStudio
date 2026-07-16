@@ -1,6 +1,6 @@
 # not-studio-api
 
-FastAPI backend for Not Studio: prompt ideation, local ACE-Step Text2Music
+FastAPI backend for Not Studio: prompt ideation, local ACE-Step 1.5 Text2Music
 generation, human review state, history, and album construction.
 
 Install and run:
@@ -10,8 +10,8 @@ uv sync
 uv run uvicorn not_studio.main:app --reload --port 8001
 ```
 
-ACE-Step is installed from the
-[official Git repository](https://github.com/ace-step/ACE-Step#-installation),
+ACE-Step 1.5 is installed from the
+[official Git repository](https://github.com/ace-step/ACE-Step-1.5),
 as recommended for library use by the upstream project.
 
 Or start the API and UI together:

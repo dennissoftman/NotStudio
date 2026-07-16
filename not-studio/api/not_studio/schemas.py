@@ -37,7 +37,7 @@ class GenerateAlbumRequest(BaseModel):
     duration_variation_percent: float = Field(default=0.0, ge=0.0, le=50.0)
     album_title: str | None = Field(default=None, max_length=120)
     provider: MusicProvider | None = None
-    model: Literal["ACE-Step"] | None = None
+    model: Literal["ACE-Step 1.5"] | None = None
 
 
 class PromptPlan(BaseModel):
@@ -50,7 +50,7 @@ class PromptPlan(BaseModel):
 
 class GenerateTracksRequest(PromptPlan):
     provider: MusicProvider | None = None
-    model: Literal["ACE-Step"] | None = None
+    model: Literal["ACE-Step 1.5"] | None = None
 
 
 class AlbumExportRequest(BaseModel):

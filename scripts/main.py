@@ -7,7 +7,8 @@ from pathlib import Path
 
 import torch
 import torchaudio
-from acestep.pipeline_ace_step import ACEStepPipeline
+from acestep.handler import AceStepHandler
+from acestep.inference import GenerationConfig, GenerationParams, generate_music
 from torchaudio.functional import resample
 from utils import normalize_loudness, tag_flac
 
@@ -35,9 +36,14 @@ def load_prompt_specs(path):
 
 
 def load_model():
-    dtype = "bfloat16" if torch.cuda.is_available() else "float32"
-    model = ACEStepPipeline(dtype=dtype)
-    model.load_checkpoint(model.checkpoint_dir)
+    model = AceStepHandler()
+    status, ready = model.initialize_service(
+        project_root="",
+        config_path="acestep-v15-turbo",
+        device="auto",
+    )
+    if not ready:
+        raise RuntimeError(f"ACE-Step 1.5 failed to initialize: {status}")
     return model
 
 
@@ -53,18 +59,27 @@ def save_generated_audio(
     target_lufs=-16.0,
 ):
     raw_path = output_path.with_suffix(".ace-step.wav")
-    result = model(
-        format="wav",
-        audio_duration=duration,
-        prompt=prompt,
-        lyrics="",
-        task="text2music",
-        save_path=str(raw_path),
-        batch_size=1,
+    result = generate_music(
+        model,
+        None,
+        GenerationParams(
+            task_type="text2music",
+            caption=prompt,
+            lyrics="[Instrumental]",
+            instrumental=True,
+            duration=duration,
+            thinking=False,
+            use_cot_metas=False,
+            use_cot_caption=False,
+            use_cot_language=False,
+            shift=3.0,
+        ),
+        GenerationConfig(batch_size=1, audio_format="wav"),
+        save_dir=str(output_path.parent),
     )
-    generated_path = (
-        Path(result[0]) if isinstance(result, list) and result else raw_path
-    )
+    if not result.success:
+        raise RuntimeError(f"ACE-Step 1.5 generation failed: {result.error}")
+    generated_path = Path(result.audios[0]["path"]) if result.audios else raw_path
     try:
         audio, model_rate = torchaudio.load(generated_path)
         if output_rate != model_rate:
@@ -79,6 +94,7 @@ def save_generated_audio(
         tag_flac(output_path, title, genre, prompt, track_number)
     finally:
         generated_path.unlink(missing_ok=True)
+        generated_path.with_suffix(".json").unlink(missing_ok=True)
         generated_path.with_name(f"{generated_path.stem}_input_params.json").unlink(
             missing_ok=True
         )

@@ -34,7 +34,7 @@ PROVIDERS: dict[str, _Provider] = {
     "ace_step_local": _Provider(
         "ace_step_local",
         _probe_ace_step_local,
-        {"model": "ACE-Step", "task": "text2music"},
+        {"model": "ACE-Step 1.5", "task": "text2music"},
     ),
 }
 

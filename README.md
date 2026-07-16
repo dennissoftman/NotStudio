@@ -10,7 +10,7 @@ taste feedback, album organization, and release export.
 1. Copy the live prompt kit from the Generate page. It includes the JSON schema
    and up to 20 recent liked examples.
 2. Ask GPT for a JSON track plan, then paste that plan into Not Studio.
-3. Generate up to 20 instrumental tracks of up to four minutes with ACE-Step Text2Music.
+3. Generate up to 20 instrumental tracks of up to four minutes with ACE-Step 1.5 Text2Music.
 4. Listen, keep favorites, regenerate candidates, and organize tracks into albums.
 5. Order an album and download numbered, tagged FLACs, its cover, and a CUE file.
 6. Optionally include one YouTube-compatible MP4 per track in the album ZIP.
@@ -30,8 +30,8 @@ over `/api/jobs/ws`, and only one track preview plays at a time.
 ```
 
 The active product is the standalone `not-studio/` application. Its API has a
-separate `uv` environment. Both environments install ACE-Step directly from
-the [official GitHub repository](https://github.com/ace-step/ACE-Step#-installation),
+separate `uv` environment. Both environments install ACE-Step 1.5 directly from
+the [official GitHub repository](https://github.com/ace-step/ACE-Step-1.5),
 matching its library installation instructions.
 
 ## Requirements

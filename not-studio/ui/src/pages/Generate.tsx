@@ -206,7 +206,7 @@ export default function Generate() {
             Your draft is saved in this browser.
           </p>
         </div>
-        <Badge tone="blue">ACE-Step / Local</Badge>
+        <Badge tone="blue">ACE-Step 1.5 / Local</Badge>
       </div>
       <textarea
         className="input h-[28rem] resize-y font-mono text-sm leading-6"

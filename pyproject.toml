@@ -3,15 +3,12 @@ name = "not-studio-engine"
 version = "0.1.0"
 description = "ACE-Step music generation utilities for Not Studio."
 readme = "not-studio/README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "mutagen>=1.48.1",
     "pyloudnorm>=0.2.0",
     "soundfile>=0.13.1",
     "ace-step",
-    "torch==2.11.0",
-    "torchaudio==2.11.0",
-    "torchvision==0.26.0",
     "tqdm>=4.68.3",
 ]
 
@@ -22,4 +19,4 @@ dev = [
 ]
 
 [tool.uv.sources]
-ace-step = { git = "https://github.com/ace-step/ACE-Step.git" }
+ace-step = { git = "https://github.com/ace-step/ACE-Step-1.5.git" }
