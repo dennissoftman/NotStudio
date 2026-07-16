@@ -39,11 +39,34 @@ def _slugify(value: str) -> str:
     return slug or "track"
 
 
+def _repair_incomplete_music_checkpoint() -> None:
+    """Resume an interrupted SFT download that upstream mistakes for complete."""
+    from acestep.model_downloader import (
+        check_model_exists,
+        download_submodel,
+        get_checkpoints_dir,
+    )
+
+    checkpoints_dir = get_checkpoints_dir()
+    checkpoint_path = checkpoints_dir / MODEL_CONFIG
+    if not checkpoint_path.exists() or check_model_exists(MODEL_CONFIG, checkpoints_dir):
+        return
+
+    available, status = download_submodel(
+        MODEL_CONFIG,
+        checkpoints_dir=checkpoints_dir,
+        force=True,
+    )
+    if not available:
+        raise RuntimeError(f"ACE-Step 1.5 checkpoint repair failed for {checkpoint_path}: {status}")
+
+
 def _load_model(model_name: str = MODEL_NAME) -> Any:
     model = _MODELS.get(model_name)
     if model is None:
         from acestep.handler import AceStepHandler
 
+        _repair_incomplete_music_checkpoint()
         model = AceStepHandler()
         status, ready = model.initialize_service(
             project_root="",

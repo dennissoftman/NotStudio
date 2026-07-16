@@ -128,6 +128,37 @@ def test_music_model_loads_high_quality_sft_checkpoint(monkeypatch):
     assert calls["device"] == "auto"
 
 
+def test_music_model_resumes_incomplete_sft_checkpoint(tmp_path, monkeypatch):
+    calls = {}
+    (tmp_path / "acestep-v15-sft").mkdir()
+
+    downloader_module = SimpleNamespace(
+        get_checkpoints_dir=lambda: tmp_path,
+        check_model_exists=lambda model_name, checkpoints_dir: False,
+        download_submodel=lambda model_name, **kwargs: (
+            calls.update(model_name=model_name, **kwargs) or (True, "downloaded")
+        ),
+    )
+
+    class Handler:
+        def initialize_service(self, **kwargs):
+            return "ready", True
+
+    monkeypatch.setitem(sys.modules, "acestep.model_downloader", downloader_module)
+    monkeypatch.setitem(sys.modules, "acestep.handler", SimpleNamespace(AceStepHandler=Handler))
+    ace_step._MODELS.clear()
+    try:
+        ace_step._load_model()
+    finally:
+        ace_step._MODELS.clear()
+
+    assert calls == {
+        "model_name": "acestep-v15-sft",
+        "checkpoints_dir": tmp_path,
+        "force": True,
+    }
+
+
 def test_sft_generation_uses_full_diffusion_and_cfg(tmp_path, monkeypatch):
     calls = {}
 
