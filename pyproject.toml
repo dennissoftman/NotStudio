@@ -6,6 +6,7 @@ readme = "not-studio/README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "mutagen>=1.48.1",
+    "not-studio-api",
     "pyloudnorm>=0.2.0",
     "soundfile>=0.13.1",
     "ace-step",
@@ -19,3 +20,4 @@ dev = [
 
 [tool.uv.sources]
 ace-step = { git = "https://github.com/ace-step/ACE-Step-1.5.git" }
+not-studio-api = { path = "not-studio/api", editable = true }
