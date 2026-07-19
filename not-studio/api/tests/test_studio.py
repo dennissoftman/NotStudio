@@ -77,6 +77,7 @@ def test_local_ace_step_preload_returns_serializable_readiness(monkeypatch):
         device = "mps"
 
     monkeypatch.setattr(ace_step, "_load_model", lambda model_name: Model())
+    monkeypatch.setattr(ace_step, "_selected_model_config", lambda: ace_step.SFT_MODEL_CONFIG)
     monkeypatch.setattr(
         ace_step,
         "_load_language_model",
@@ -118,6 +119,7 @@ def test_music_model_loads_high_quality_sft_checkpoint(monkeypatch):
             return "ready", True
 
     monkeypatch.setitem(sys.modules, "acestep.handler", SimpleNamespace(AceStepHandler=Handler))
+    monkeypatch.setattr(ace_step, "_selected_model_config", lambda: ace_step.SFT_MODEL_CONFIG)
     ace_step._MODELS.clear()
     try:
         ace_step._load_model()
@@ -146,6 +148,7 @@ def test_music_model_resumes_incomplete_sft_checkpoint(tmp_path, monkeypatch):
 
     monkeypatch.setitem(sys.modules, "acestep.model_downloader", downloader_module)
     monkeypatch.setitem(sys.modules, "acestep.handler", SimpleNamespace(AceStepHandler=Handler))
+    monkeypatch.setattr(ace_step, "_selected_model_config", lambda: ace_step.SFT_MODEL_CONFIG)
     ace_step._MODELS.clear()
     try:
         ace_step._load_model()
@@ -173,8 +176,9 @@ def test_sft_generation_uses_full_diffusion_and_cfg(tmp_path, monkeypatch):
     )
     monkeypatch.setitem(sys.modules, "acestep.inference", inference_module)
 
+    model = SimpleNamespace(_not_studio_checkpoint=ace_step.SFT_MODEL_CONFIG)
     result = ace_step._run_generation(
-        object(),
+        model,
         object(),
         ace_step.GenerationInput(prompt="detailed composition", duration=180),
         tmp_path,
@@ -185,6 +189,54 @@ def test_sft_generation_uses_full_diffusion_and_cfg(tmp_path, monkeypatch):
     assert calls["params"].guidance_scale == 7.0
     assert calls["params"].shift == 1.0
     assert calls["params"].thinking is True
+
+
+def test_apple_silicon_with_16gb_or_less_selects_turbo(monkeypatch):
+    monkeypatch.setattr(ace_step.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(ace_step.platform, "machine", lambda: "arm64")
+
+    for memory_gib in (8, 16):
+        monkeypatch.setattr(
+            ace_step.psutil,
+            "virtual_memory",
+            lambda memory_gib=memory_gib: SimpleNamespace(total=memory_gib * 1024**3),
+        )
+        assert ace_step._selected_model_config() == ace_step.TURBO_MODEL_CONFIG
+
+
+def test_apple_silicon_over_16gb_keeps_sft(monkeypatch):
+    monkeypatch.setattr(ace_step, "_apple_silicon_memory_bytes", lambda: 24 * 1024**3)
+    assert ace_step._selected_model_config() == ace_step.SFT_MODEL_CONFIG
+
+
+def test_turbo_generation_uses_low_step_preset(tmp_path, monkeypatch):
+    calls = {}
+
+    def generate_music(model, language_model, params, config, save_dir):
+        calls["params"] = params
+        return SimpleNamespace(success=True)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "acestep.inference",
+        SimpleNamespace(
+            GenerationParams=lambda **kwargs: SimpleNamespace(**kwargs),
+            GenerationConfig=lambda **kwargs: SimpleNamespace(**kwargs),
+            generate_music=generate_music,
+        ),
+    )
+    model = SimpleNamespace(_not_studio_checkpoint=ace_step.TURBO_MODEL_CONFIG)
+
+    ace_step._run_generation(
+        model,
+        object(),
+        ace_step.GenerationInput(prompt="small Mac", duration=30),
+        tmp_path,
+    )
+
+    assert calls["params"].inference_steps == 8
+    assert calls["params"].guidance_scale == 1.0
+    assert calls["params"].shift == 3.0
 
 
 def test_generate_batch_honors_cancellation(tmp_path, monkeypatch):

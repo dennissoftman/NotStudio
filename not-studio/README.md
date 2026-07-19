@@ -28,8 +28,10 @@ workspace built around ACE-Step.
 | Music generation                        | Local ACE-Step 1.5 Text2Music                       |
 
 ACE-Step uses the high-quality `acestep-v15-sft` music checkpoint with 50
-diffusion steps and CFG, then selects its 5 Hz language model by accelerator:
-0.6B/PyTorch on Apple Silicon and CPU, and 1.7B/vLLM on NVIDIA CUDA. The language
+diffusion steps and CFG. Apple Silicon Macs with 16 GB or less of unified memory
+automatically use the lower-memory turbo checkpoint and its 8-step preset. The
+app selects its 5 Hz language model by accelerator: 0.6B/PyTorch on Apple Silicon
+and CPU, and 1.7B/vLLM on NVIDIA CUDA. The language
 model's thinking path is enabled for metadata, prompt refinement, and semantic
 audio-code generation.
 

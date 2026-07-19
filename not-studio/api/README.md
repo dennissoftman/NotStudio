@@ -4,7 +4,8 @@ FastAPI backend for Not Studio: prompt ideation, local ACE-Step 1.5 Text2Music
 generation, human review state, history, and album construction.
 
 The high-quality `acestep-v15-sft` music model runs with 50 diffusion steps and
-CFG. It is paired with a device-selected ACE-Step 5 Hz language model for
+CFG. Apple Silicon Macs with 16 GB or less of unified memory instead select
+`acestep-v15-turbo` with its 8-step preset. It is paired with a device-selected ACE-Step 5 Hz language model for
 thinking and prompt refinement: 0.6B with PyTorch on Apple Silicon and CPU, and
 1.7B with vLLM on NVIDIA CUDA. Missing checkpoints are downloaded automatically
 on first startup.

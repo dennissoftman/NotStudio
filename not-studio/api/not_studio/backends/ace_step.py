@@ -1,17 +1,36 @@
 from __future__ import annotations
 
+import platform
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import psutil
+
 from ..audio import dsp
 
 MODEL_NAME = "ACE-Step 1.5"
-MODEL_CONFIG = "acestep-v15-sft"
+SFT_MODEL_CONFIG = "acestep-v15-sft"
+TURBO_MODEL_CONFIG = "acestep-v15-turbo"
+APPLE_SILICON_TURBO_MEMORY_LIMIT = 16 * 1024**3
 _MODELS: dict[str, Any] = {}
 _LANGUAGE_MODELS: dict[tuple[str, str], Any] = {}
+
+
+def _apple_silicon_memory_bytes() -> int | None:
+    """Return Apple Silicon unified memory, which is shared by CPU and GPU."""
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        return None
+    return int(psutil.virtual_memory().total)
+
+
+def _selected_model_config() -> str:
+    memory_bytes = _apple_silicon_memory_bytes()
+    if memory_bytes is not None and memory_bytes <= APPLE_SILICON_TURBO_MEMORY_LIMIT:
+        return TURBO_MODEL_CONFIG
+    return SFT_MODEL_CONFIG
 
 
 def _language_model_config(device: str) -> tuple[str, str]:
@@ -37,8 +56,8 @@ def _slugify(value: str) -> str:
     return slug or "track"
 
 
-def _repair_incomplete_music_checkpoint() -> None:
-    """Resume an interrupted SFT download that upstream mistakes for complete."""
+def _repair_incomplete_music_checkpoint(model_config: str) -> None:
+    """Resume an interrupted checkpoint download upstream mistakes for complete."""
     from acestep.model_downloader import (
         check_model_exists,
         download_submodel,
@@ -46,12 +65,12 @@ def _repair_incomplete_music_checkpoint() -> None:
     )
 
     checkpoints_dir = get_checkpoints_dir()
-    checkpoint_path = checkpoints_dir / MODEL_CONFIG
-    if not checkpoint_path.exists() or check_model_exists(MODEL_CONFIG, checkpoints_dir):
+    checkpoint_path = checkpoints_dir / model_config
+    if not checkpoint_path.exists() or check_model_exists(model_config, checkpoints_dir):
         return
 
     available, status = download_submodel(
-        MODEL_CONFIG,
+        model_config,
         checkpoints_dir=checkpoints_dir,
         force=True,
     )
@@ -64,15 +83,17 @@ def _load_model(model_name: str = MODEL_NAME) -> Any:
     if model is None:
         from acestep.handler import AceStepHandler
 
-        _repair_incomplete_music_checkpoint()
+        model_config = _selected_model_config()
+        _repair_incomplete_music_checkpoint(model_config)
         model = AceStepHandler()
         status, ready = model.initialize_service(
             project_root="",
-            config_path=MODEL_CONFIG,
+            config_path=model_config,
             device="auto",
         )
         if not ready:
             raise RuntimeError(f"ACE-Step 1.5 failed to initialize: {status}")
+        setattr(model, "_not_studio_checkpoint", model_config)
         _MODELS[model_name] = model
     return model
 
@@ -117,7 +138,9 @@ def preload_model(model: str = MODEL_NAME) -> dict[str, str]:
         "status": "ready",
         "provider": "ace_step_local",
         "model": MODEL_NAME,
-        "checkpoint": MODEL_CONFIG,
+        "checkpoint": str(
+            getattr(loaded_model, "_not_studio_checkpoint", _selected_model_config())
+        ),
         "device": str(getattr(loaded_model, "device", "unknown")),
         "language_model": language_model_name,
         "language_model_backend": language_model_backend,
@@ -145,19 +168,21 @@ def _run_generation(
 ) -> Any:
     from acestep.inference import GenerationConfig, GenerationParams, generate_music
 
+    checkpoint = str(getattr(model, "_not_studio_checkpoint", SFT_MODEL_CONFIG))
+    turbo = checkpoint == TURBO_MODEL_CONFIG
     params = GenerationParams(
         task_type=request.task,
         caption=request.prompt,
         lyrics="[Instrumental]",
         instrumental=True,
         duration=request.duration,
-        inference_steps=50,
-        guidance_scale=7.0,
+        inference_steps=8 if turbo else 50,
+        guidance_scale=1.0 if turbo else 7.0,
         thinking=True,
         use_cot_metas=True,
         use_cot_caption=True,
         use_cot_language=False,
-        shift=1.0,
+        shift=3.0 if turbo else 1.0,
     )
     config = GenerationConfig(batch_size=1, audio_format="wav")
     result = generate_music(model, language_model, params, config, save_dir=str(save_dir))
