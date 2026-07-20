@@ -2,7 +2,8 @@
 
 export type MusicProvider = "ace_step_local";
 export type TrackVerdict = "liked" | "unreviewed";
-export type JobStatus = "queued" | "in_progress" | "completed" | "failed" | "cancelled";
+export type JobStatus =
+  "queued" | "in_progress" | "completed" | "failed" | "cancelled";
 
 export interface MusicProviderInfo {
   provider: MusicProvider;
@@ -25,7 +26,14 @@ export interface PromptSpec {
 
 export interface PromptPlan {
   album_title?: string | null;
+  summary?: string | null;
   notes?: string | null;
+  visual_direction?: {
+    palette: string[];
+    motifs: string[];
+    style: string;
+    avoid: string[];
+  } | null;
   artwork_prompt?: string | null;
   prompts: PromptSpec[];
 }
@@ -68,6 +76,7 @@ export interface HistoryItem {
   id: string;
   kind: string;
   title: string;
+  album_id: string | null;
   job_id: string | null;
   path: string;
   sample_rate: number;
@@ -77,6 +86,61 @@ export interface HistoryItem {
   lufs: number | null;
   meta: Record<string, unknown>;
   created_at: string;
+}
+
+export interface GenerationRun {
+  id: string;
+  status: string;
+  stage: string;
+  brief: string;
+  artwork_guidance: string;
+  style_reference_id: string | null;
+  cover_output_size: number;
+  auto_start: boolean;
+  plan: PromptPlan | null;
+  params: Record<string, unknown>;
+  album_id: string | null;
+  plan_job_id: string | null;
+  generation_job_id: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StyleReference {
+  id: string;
+  path: string;
+  mime: string;
+  width: number;
+  height: number;
+  size_bytes: number;
+  original_name: string;
+  created_at: string;
+}
+
+export interface CoverAsset {
+  id: string;
+  owner_type: "album" | "track";
+  owner_id: string;
+  version: number;
+  status: "queued" | "generating" | "ready" | "failed";
+  selected: boolean;
+  path: string;
+  mime: string;
+  width: number;
+  height: number;
+  size_bytes: number;
+  prompt: string;
+  effective_prompt: string;
+  style_reference_id: string | null;
+  seed: number | null;
+  provider: string;
+  model: string;
+  config: Record<string, unknown>;
+  job_id: string | null;
+  error: string | null;
+  created_at: string;
+  selected_at: string | null;
 }
 
 export interface Health {
@@ -97,7 +161,8 @@ export interface Health {
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (!(init?.body instanceof FormData)) headers.set("Content-Type", "application/json");
+  if (!(init?.body instanceof FormData))
+    headers.set("Content-Type", "application/json");
   const res = await fetch(`/api${path}`, {
     ...init,
     headers,
@@ -110,7 +175,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* ignore */
     }
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new Error(
+      typeof detail === "string" ? detail : JSON.stringify(detail),
+    );
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -126,7 +193,10 @@ async function downloadReq(path: string, data: unknown): Promise<Blob> {
     let detail = res.statusText;
     try {
       const payload = await res.json();
-      detail = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+      detail =
+        typeof payload.detail === "string"
+          ? payload.detail
+          : JSON.stringify(payload.detail);
     } catch {
       /* ignore */
     }
@@ -149,7 +219,8 @@ export const api = {
   deleteJob: (id: string) => req<void>(`/jobs/${id}`, { method: "DELETE" }),
 
   history: () => req<HistoryItem[]>("/history"),
-  deleteHistory: (id: string) => req<void>(`/history/${id}`, { method: "DELETE" }),
+  deleteHistory: (id: string) =>
+    req<void>(`/history/${id}`, { method: "DELETE" }),
   audioUrl: (id: string) => `/api/history/${id}/audio`,
   artworkUrl: (id: string, version?: string) =>
     `/api/studio/tracks/${id}/artwork${version ? `?v=${encodeURIComponent(version)}` : ""}`,
@@ -161,16 +232,25 @@ export const api = {
 
   generateAlbum: (data: unknown) =>
     req<Job>("/studio/albums/generate", { method: "POST", body: body(data) }),
-  downloadAlbum: (data: { title: string; item_ids: string[]; include_track_videos: boolean }) =>
-    downloadReq("/studio/albums/export", data),
+  downloadAlbum: (data: {
+    title: string;
+    item_ids: string[];
+    include_track_videos: boolean;
+  }) => downloadReq("/studio/albums/export", data),
   generateTracks: (data: unknown) =>
     req<Job>("/studio/generate", { method: "POST", body: body(data) }),
   tracks: (params?: { verdict?: TrackVerdict }) => {
     const q = new URLSearchParams(params as Record<string, string>).toString();
     return req<HistoryItem[]>(`/studio/tracks${q ? `?${q}` : ""}`);
   },
-  reviewTrack: (id: string, data: { verdict: TrackVerdict; note?: string | null }) =>
-    req<HistoryItem>(`/studio/tracks/${id}/review`, { method: "PATCH", body: body(data) }),
+  reviewTrack: (
+    id: string,
+    data: { verdict: TrackVerdict; note?: string | null },
+  ) =>
+    req<HistoryItem>(`/studio/tracks/${id}/review`, {
+      method: "PATCH",
+      body: body(data),
+    }),
   setTrackAlbum: (id: string, albumTitle: string | null) =>
     req<HistoryItem>(`/studio/tracks/${id}/album`, {
       method: "PATCH",
@@ -181,18 +261,82 @@ export const api = {
   setTrackArtwork: (id: string, file: File) => {
     const data = new FormData();
     data.append("file", file);
-    return req<HistoryItem>(`/studio/tracks/${id}/artwork`, { method: "POST", body: data });
+    return req<HistoryItem>(`/studio/tracks/${id}/artwork`, {
+      method: "POST",
+      body: data,
+    });
   },
   setAlbumArtwork: (title: string, file: File) => {
     const data = new FormData();
     data.append("title", title);
     data.append("file", file);
-    return req<{ title: string; updated_at: string }>("/studio/albums/artwork", {
+    return req<{ title: string; updated_at: string }>(
+      "/studio/albums/artwork",
+      {
+        method: "POST",
+        body: data,
+      },
+    );
+  },
+  promptKit: () => req<PromptKit>("/studio/prompt-kit"),
+
+  generationRuns: () => req<GenerationRun[]>("/studio/album-runs"),
+  generationRun: (id: string) => req<GenerationRun>(`/studio/album-runs/${id}`),
+  createGenerationRun: (data: unknown) =>
+    req<GenerationRun>("/studio/album-runs", {
+      method: "POST",
+      body: body(data),
+    }),
+  updateGenerationPlan: (id: string, plan: PromptPlan) =>
+    req<GenerationRun>(`/studio/album-runs/${id}/plan`, {
+      method: "PATCH",
+      body: body({ plan }),
+    }),
+  replanGenerationRun: (id: string) =>
+    req<GenerationRun>(`/studio/album-runs/${id}/replan`, { method: "POST" }),
+  generateGenerationRun: (id: string, generateCovers = true) =>
+    req<Job>(`/studio/album-runs/${id}/generate`, {
+      method: "POST",
+      body: body({ generate_covers: generateCovers }),
+    }),
+  cancelGenerationRun: (id: string) =>
+    req<GenerationRun>(`/studio/album-runs/${id}/cancel`, { method: "POST" }),
+  uploadStyleReference: (file: File) => {
+    const data = new FormData();
+    data.append("file", file);
+    return req<StyleReference>("/studio/style-references", {
       method: "POST",
       body: data,
     });
   },
-  promptKit: () => req<PromptKit>("/studio/prompt-kit"),
+  styleReferenceUrl: (id: string) => `/api/studio/style-references/${id}/image`,
+  coverUrl: (id: string) => `/api/studio/covers/${id}/image`,
+  covers: (ownerType?: "album" | "track") =>
+    req<CoverAsset[]>(
+      `/studio/covers${ownerType ? `?owner_type=${ownerType}` : ""}`,
+    ),
+  trackCovers: (id: string) => req<CoverAsset[]>(`/studio/tracks/${id}/covers`),
+  albumCovers: (id: string) => req<CoverAsset[]>(`/studio/albums/${id}/covers`),
+  generateTrackCover: (id: string, data: unknown) =>
+    req<Job>(`/studio/tracks/${id}/covers/generate`, {
+      method: "POST",
+      body: body(data),
+    }),
+  generateAlbumCover: (id: string, data: unknown) =>
+    req<Job>(`/studio/albums/${id}/covers/generate`, {
+      method: "POST",
+      body: body(data),
+    }),
+  generateAllAlbumCovers: (id: string, data: unknown) =>
+    req<Job>(`/studio/albums/${id}/covers/generate-all`, {
+      method: "POST",
+      body: body(data),
+    }),
+  selectCover: (id: string) =>
+    req<CoverAsset>(`/studio/covers/${id}/select`, {
+      method: "PUT",
+      body: body({ selected: true }),
+    }),
 };
 
 export function jobsWebSocketUrl(): string {

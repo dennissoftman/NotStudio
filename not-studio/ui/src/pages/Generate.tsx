@@ -1,238 +1,444 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { PromptPlan, PromptSpec } from "../api/client";
+import type { GenerationRun, PromptPlan, PromptSpec } from "../api/client";
 import {
-  useCancelJob,
-  useDeleteJob,
-  useGenerateTracks,
+  useCreateGenerationRun,
+  useGenerateGenerationRun,
+  useGenerationRuns,
   useJobs,
-  usePromptKit,
-  useRetryJob,
+  useReplanGenerationRun,
+  useUpdateGenerationPlan,
+  useUploadStyleReference,
 } from "../api/hooks";
-import { CopyIcon, SparklesIcon } from "../components/icons";
-import { Badge, Card, Progress, SectionTitle, StatusBadge } from "../components/ui";
+import { SparklesIcon } from "../components/icons";
+import {
+  Badge,
+  Card,
+  Progress,
+  SectionTitle,
+  StatusBadge,
+} from "../components/ui";
 
-function storedPromptPlan(): string {
+function stored(key: string, fallback = "") {
   try {
-    return localStorage.getItem("not-studio:prompt-plan") || "";
+    return localStorage.getItem(key) || fallback;
   } catch {
-    return "";
-  }
-}
-
-function storedArtworkGuidance(): string {
-  try {
-    return localStorage.getItem("not-studio:artwork-guidance") || "";
-  } catch {
-    return "";
+    return fallback;
   }
 }
 
 function parsePromptPlan(value: string): PromptPlan {
-  const parsed: unknown = JSON.parse(value);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Top level must be an object with prompts");
+  const source = JSON.parse(value) as Record<string, unknown>;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    throw new Error("Plan must be a JSON object");
   }
-  const source = parsed as Record<string, unknown>;
-  if (source.album_title != null && (typeof source.album_title !== "string" || !source.album_title.trim())) {
-    throw new Error("album_title must be a non-empty string when provided");
-  }
-  if (!Array.isArray(source.prompts) || source.prompts.length === 0) {
-    throw new Error("Album plan needs a non-empty prompts list");
-  }
-  if (source.prompts.length > 20) throw new Error("An album can contain at most 20 tracks");
-  for (const key of ["notes", "artwork_prompt"] as const) {
-    if (source[key] != null && typeof source[key] !== "string") {
-      throw new Error(`${key} must be a string when provided`);
-    }
+  if (
+    !Array.isArray(source.prompts) ||
+    source.prompts.length < 1 ||
+    source.prompts.length > 20
+  ) {
+    throw new Error("Plan must contain 1–20 tracks");
   }
   const prompts = source.prompts.map((item, index) => {
-    if (!item || typeof item !== "object") throw new Error(`Track ${index + 1} must be an object`);
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      throw new Error(`Track ${index + 1} is invalid`);
     const track = item as Record<string, unknown>;
-    if (typeof track.title !== "string" || !track.title.trim()) throw new Error(`Track ${index + 1} needs a title`);
-    if (typeof track.genre !== "string" || !track.genre.trim()) throw new Error(`Track ${index + 1} needs a genre`);
-    if (typeof track.prompt !== "string" || !track.prompt.trim()) throw new Error(`Track ${index + 1} needs a prompt`);
-    if (track.album_title != null && (typeof track.album_title !== "string" || !track.album_title.trim())) {
-      throw new Error(`Track ${index + 1} album_title must be a non-empty string when provided`);
-    }
-    if (
-      track.album != null &&
-      (typeof track.album !== "string" || !track.album.trim()) &&
-      (typeof track.album !== "object" || Array.isArray(track.album))
-    ) {
-      throw new Error(`Track ${index + 1} album must be a title or object when provided`);
-    }
-    for (const key of ["notes", "artwork_prompt"] as const) {
-      if (track[key] != null && typeof track[key] !== "string") {
-        throw new Error(`Track ${index + 1} ${key} must be a string when provided`);
-      }
+    for (const key of ["title", "genre", "prompt"] as const) {
+      if (typeof track[key] !== "string" || !track[key].trim())
+        throw new Error(`Track ${index + 1} needs ${key}`);
     }
     const duration = Number(track.duration);
-    if (!Number.isFinite(duration) || duration < 15 || duration > 240) throw new Error(`Track ${index + 1} duration must be 15–240 seconds`);
-    const notes = typeof track.notes === "string" ? track.notes.trim() : "";
-    const artworkPrompt = typeof track.artwork_prompt === "string" ? track.artwork_prompt.trim() : "";
-    const albumTitle = typeof track.album_title === "string" ? track.album_title.trim() : "";
-    return {
-      ...track,
-      title: track.title.trim(),
-      genre: track.genre.trim(),
-      prompt: track.prompt.trim(),
-      duration,
-      ...(albumTitle ? { album_title: albumTitle } : {}),
-      ...(notes ? { notes } : {}),
-      ...(artworkPrompt ? { artwork_prompt: artworkPrompt } : {}),
-    } as PromptSpec;
+    if (!Number.isFinite(duration) || duration < 15 || duration > 240)
+      throw new Error(`Track ${index + 1} duration must be 15–240 seconds`);
+    return { ...track, duration } as unknown as PromptSpec;
   });
-  const notes = typeof source.notes === "string" ? source.notes.trim() : "";
-  const artworkPrompt = typeof source.artwork_prompt === "string" ? source.artwork_prompt.trim() : "";
-  return {
-    ...(typeof source.album_title === "string" ? { album_title: source.album_title.trim() } : {}),
-    ...(notes ? { notes } : {}),
-    ...(artworkPrompt ? { artwork_prompt: artworkPrompt } : {}),
-    prompts,
+  return { ...source, prompts } as unknown as PromptPlan;
+}
+
+function stageLabel(run: GenerationRun) {
+  const labels: Record<string, string> = {
+    planning: "Creating the album plan",
+    awaiting_review: "Plan ready for review",
+    generating_tracks: "Generating tracks with ACE-Step",
+    generating_covers: "Generating album and track covers",
+    completed: "Album generation complete",
+    completed_with_errors: "Complete with artwork warnings",
+    failed: "Generation failed",
+    cancelled: "Generation cancelled",
   };
+  return labels[run.stage] ?? run.stage.replaceAll("_", " ");
 }
 
 export default function Generate() {
-  const [promptJson, setPromptJson] = useState(storedPromptPlan);
-  const [artworkGuidance, setArtworkGuidance] = useState(storedArtworkGuidance);
-  const [showKit, setShowKit] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [brief, setBrief] = useState(() => stored("not-studio:album-brief"));
+  const [artworkGuidance, setArtworkGuidance] = useState(() =>
+    stored("not-studio:artwork-guidance"),
+  );
+  const [styleFile, setStyleFile] = useState<File | null>(null);
+  const [stylePreview, setStylePreview] = useState("");
+  const [outputSize, setOutputSize] = useState(2048);
+  const [autoStart, setAutoStart] = useState(false);
+  const [activeRunId, setActiveRunId] = useState("");
+  const [planJson, setPlanJson] = useState("");
+  const [showJson, setShowJson] = useState(false);
   const [error, setError] = useState("");
 
-  const { data: promptKit } = usePromptKit();
+  const { data: runs } = useGenerationRuns();
   const { data: jobs } = useJobs();
-  const genTracks = useGenerateTracks();
-  const cancelJob = useCancelJob();
-  const deleteJob = useDeleteJob();
-  const retryJob = useRetryJob();
-  const generationJobs = (jobs ?? []).filter((job) => job.type === "generate_tracks").slice(0, 6);
+  const createRun = useCreateGenerationRun();
+  const uploadReference = useUploadStyleReference();
+  const updatePlan = useUpdateGenerationPlan();
+  const replan = useReplanGenerationRun();
+  const generate = useGenerateGenerationRun();
 
-  useEffect(() => {
-    try { localStorage.setItem("not-studio:prompt-plan", promptJson); } catch { /* ignore */ }
-  }, [promptJson]);
-
-  useEffect(() => {
-    try { localStorage.setItem("not-studio:artwork-guidance", artworkGuidance); } catch { /* ignore */ }
-  }, [artworkGuidance]);
-
-  const guidedPromptKit = useMemo(
-    () => promptKit ? { ...promptKit, artwork_guidance: artworkGuidance } : undefined,
-    [artworkGuidance, promptKit],
+  const activeRun = useMemo(
+    () => runs?.find((run) => run.id === activeRunId) ?? runs?.[0],
+    [activeRunId, runs],
+  );
+  const activeJob = jobs?.find(
+    (job) =>
+      job.id === activeRun?.generation_job_id ||
+      job.id === activeRun?.plan_job_id,
   );
 
-  const plan = useMemo(() => {
-    if (!promptJson.trim()) return { value: null as PromptPlan | null, prompts: [] as PromptSpec[], error: "" };
+  useEffect(() => {
     try {
-      const value = parsePromptPlan(promptJson);
-      return { value, prompts: value.prompts, error: "" };
+      localStorage.setItem("not-studio:album-brief", brief);
+      localStorage.setItem("not-studio:artwork-guidance", artworkGuidance);
+    } catch {
+      /* ignore */
     }
-    catch (cause) { return { value: null, prompts: [] as PromptSpec[], error: (cause as Error).message }; }
-  }, [promptJson]);
+  }, [artworkGuidance, brief]);
 
-  const genres = [...new Set(plan.prompts.map((prompt) => prompt.genre))];
-  const totalMinutes = Math.round(plan.prompts.reduce((sum, prompt) => sum + prompt.duration, 0) / 60);
+  useEffect(() => {
+    if (activeRun?.plan) setPlanJson(JSON.stringify(activeRun.plan, null, 2));
+  }, [activeRun?.id, activeRun?.updated_at]);
 
-  async function copyKit() {
-    if (!guidedPromptKit) return;
-    await navigator.clipboard.writeText(JSON.stringify(guidedPromptKit, null, 2));
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
-  }
+  useEffect(() => {
+    if (!styleFile) {
+      setStylePreview("");
+      return;
+    }
+    const url = URL.createObjectURL(styleFile);
+    setStylePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [styleFile]);
 
-  async function generate() {
+  async function createPlan() {
     setError("");
+    if (brief.trim().length < 10) {
+      setError("Describe the album in at least a short sentence.");
+      return;
+    }
     try {
-      const parsedPlan = parsePromptPlan(promptJson);
-      await genTracks.mutateAsync(parsedPlan);
+      const reference = styleFile
+        ? await uploadReference.mutateAsync(styleFile)
+        : null;
+      const run = await createRun.mutateAsync({
+        brief: brief.trim(),
+        artwork_guidance: artworkGuidance.trim(),
+        style_reference_id: reference?.id ?? null,
+        cover_output_size: outputSize,
+        auto_start: autoStart,
+        duration_default: 180,
+      });
+      setActiveRunId(run.id);
     } catch (cause) {
       setError((cause as Error).message);
     }
   }
 
-  return <div>
-    <SectionTitle
-      title="Generate from your prompts"
-      subtitle="Bring the music direction from GPT, paste the JSON plan, and send it straight to ACE-Step."
-      actions={<Link className="btn-ghost" to="/library">Open library</Link>}
-    />
+  async function savePlan() {
+    if (!activeRun) return;
+    setError("");
+    try {
+      const plan = parsePromptPlan(planJson);
+      await updatePlan.mutateAsync({ id: activeRun.id, plan });
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  }
 
-    <Card className="mb-4 overflow-hidden !border-accent/30 bg-gradient-to-br from-accent/10 via-ink-900 to-ink-900">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/20 text-accent-soft">
-            <SparklesIcon className="h-5 w-5" />
-          </div>
+  async function startGeneration() {
+    if (!activeRun) return;
+    setError("");
+    try {
+      const plan = parsePromptPlan(planJson);
+      await updatePlan.mutateAsync({ id: activeRun.id, plan });
+      await generate.mutateAsync(activeRun.id);
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  }
+
+  const pending = createRun.isPending || uploadReference.isPending;
+  const plan = (() => {
+    try {
+      return planJson ? parsePromptPlan(planJson) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  return (
+    <div className="space-y-6">
+      <SectionTitle
+        title="Create an album"
+        subtitle="Describe the music and its story. A local planner turns it into tracks, then ACE-Step and FLUX generate the album."
+        actions={
+          <Link className="btn-ghost" to="/library">
+            Open library
+          </Link>
+        }
+      />
+
+      <Card className="overflow-hidden !border-accent/30 bg-gradient-to-br from-accent/10 via-ink-900 to-ink-900">
+        <label className="block">
+          <span className="label">Album brief</span>
+          <textarea
+            className="input min-h-44 resize-y text-base leading-7"
+            value={brief}
+            maxLength={8000}
+            placeholder="A seven-track ambient techno album about a city slowly becoming empty. It begins crowded and anxious, becomes spacious, and ends with a warm sunrise. Analog synths, distant railway sounds, no vocals."
+            onChange={(event) => setBrief(event.target.value)}
+          />
+          <span className="mt-1 block text-xs text-slate-500">
+            Include track count, mood, musical direction, and any story arc in
+            ordinary language.
+          </span>
+        </label>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_14rem]">
+          <label>
+            <span className="label">Artwork guidance</span>
+            <textarea
+              className="input min-h-28 resize-y"
+              value={artworkGuidance}
+              placeholder="Minimal cinematic abstraction, restrained palette, no typography…"
+              onChange={(event) => setArtworkGuidance(event.target.value)}
+            />
+          </label>
           <div>
-            <div className="font-medium text-slate-100">GPT prompt kit</div>
-            <p className="mt-0.5 max-w-2xl text-sm text-slate-400">
-              Copy the live JSON contract plus your liked prompt history, then ask GPT to create the next batch.
-            </p>
-            {promptKit && <div className="mt-2 flex flex-wrap gap-2">
-              <Badge tone="green">{promptKit.taste_profile.liked_examples.length} liked</Badge>
-              <Badge tone="violet">album + artwork schema</Badge>
-            </div>}
+            <span className="label">Visual style reference</span>
+            <label className="flex h-28 cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed border-ink-600 bg-ink-950 text-center text-xs text-slate-500 hover:border-accent/60">
+              {stylePreview ? (
+                <img
+                  className="h-full w-full object-cover"
+                  src={stylePreview}
+                  alt="Style reference preview"
+                />
+              ) : (
+                "Upload PNG, JPEG, or WebP"
+              )}
+              <input
+                className="hidden"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) =>
+                  setStyleFile(event.target.files?.[0] ?? null)
+                }
+              />
+            </label>
           </div>
         </div>
-        <div className="flex shrink-0 gap-2">
-          <button className="btn-ghost" onClick={() => setShowKit((value) => !value)}>{showKit ? "Hide spec" : "View spec"}</button>
-          <button className="btn-primary" disabled={!promptKit} onClick={copyKit}>
-            <CopyIcon className="h-4 w-4" /> {copied ? "Copied" : "Copy for GPT"}
+
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
+          <div className="flex items-end gap-3">
+            <label>
+              <span className="label">Cover size</span>
+              <select
+                className="input w-32"
+                value={outputSize}
+                onChange={(event) => setOutputSize(Number(event.target.value))}
+              >
+                <option value={1024}>1024 px</option>
+                <option value={2048}>2048 px</option>
+                <option value={4096}>4096 px</option>
+              </select>
+            </label>
+            <label className="mb-2 flex items-center gap-2 text-sm text-slate-400">
+              <input
+                type="checkbox"
+                checked={autoStart}
+                onChange={(event) => setAutoStart(event.target.checked)}
+              />
+              Generate automatically after planning
+            </label>
+          </div>
+          <button
+            className="btn-primary"
+            disabled={pending || brief.trim().length < 10}
+            onClick={createPlan}
+          >
+            <SparklesIcon className="h-4 w-4" />{" "}
+            {pending ? "Submitting…" : "Create album plan"}
           </button>
         </div>
-      </div>
-      <label className="mt-4 block">
-        <span className="label">Artwork guidance</span>
-        <textarea
-          className="input min-h-24 resize-y"
-          value={artworkGuidance}
-          maxLength={4000}
-          placeholder="Describe your preferred visual style, recurring motifs, colors, composition, and anything artwork prompts should avoid."
-          onChange={(event) => setArtworkGuidance(event.target.value)}
-        />
-        <span className="mt-1 block text-xs text-slate-500">
-          Saved automatically and included as artwork_guidance in the copied GPT prompt kit.
-        </span>
-      </label>
-      {showKit && <textarea className="input mt-4 h-80 font-mono text-xs" readOnly value={guidedPromptKit ? JSON.stringify(guidedPromptKit, null, 2) : "Loading…"} />}
-    </Card>
+        {error && <div className="mt-3 text-sm text-red-400">{error}</div>}
+      </Card>
 
-    <Card>
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+      {activeRun && (
+        <Card>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-medium text-slate-100">
+                  {activeRun.plan?.album_title || "Album run"}
+                </h3>
+                <Badge
+                  tone={activeRun.status === "completed" ? "green" : "violet"}
+                >
+                  {stageLabel(activeRun)}
+                </Badge>
+              </div>
+              {activeRun.plan?.summary && (
+                <p className="mt-1 text-sm text-slate-400">
+                  {activeRun.plan.summary}
+                </p>
+              )}
+            </div>
+            {activeJob && <StatusBadge status={activeJob.status} />}
+          </div>
+          {activeJob &&
+            (activeJob.status === "queued" ||
+              activeJob.status === "in_progress") && (
+              <div className="mt-4">
+                <div className="mb-1 flex justify-between text-xs text-slate-500">
+                  <span>{activeJob.message || "Queued"}</span>
+                  <span>{Math.round(activeJob.progress * 100)}%</span>
+                </div>
+                <Progress value={activeJob.progress} />
+              </div>
+            )}
+          {activeRun.error && (
+            <div className="mt-3 text-sm text-red-400">{activeRun.error}</div>
+          )}
+
+          {activeRun.status === "awaiting_review" && activeRun.plan && (
+            <div className="mt-5">
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Badge tone="green">
+                  {activeRun.plan.prompts.length} tracks
+                </Badge>
+                <Badge>
+                  {Math.round(
+                    activeRun.plan.prompts.reduce(
+                      (sum, item) => sum + item.duration,
+                      0,
+                    ) / 60,
+                  )}{" "}
+                  min
+                </Badge>
+                <Badge tone="amber">album + track covers</Badge>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {activeRun.plan.prompts.map((track, index) => (
+                  <div
+                    key={`${track.title}-${index}`}
+                    className="rounded-lg border border-ink-700 bg-ink-950/50 p-3"
+                  >
+                    <div className="flex items-start gap-2">
+                      <span className="text-xs font-semibold text-accent-soft">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <div className="text-sm font-medium text-slate-200">
+                          {track.title}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {track.genre} · {Math.round(track.duration / 60)} min
+                        </div>
+                      </div>
+                    </div>
+                    {track.notes && (
+                      <p className="mt-2 text-xs text-slate-500">
+                        {track.notes}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                className="btn-ghost mt-4 !text-xs"
+                onClick={() => setShowJson((value) => !value)}
+              >
+                {showJson ? "Hide advanced JSON" : "Edit advanced JSON"}
+              </button>
+              {showJson && (
+                <textarea
+                  className="input mt-2 h-[34rem] resize-y font-mono text-xs leading-5"
+                  value={planJson}
+                  onChange={(event) => setPlanJson(event.target.value)}
+                  spellCheck={false}
+                />
+              )}
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <button
+                  className="btn-ghost"
+                  disabled={replan.isPending}
+                  onClick={() => replan.mutate(activeRun.id)}
+                >
+                  Regenerate plan
+                </button>
+                {showJson && (
+                  <button
+                    className="btn-ghost"
+                    disabled={!plan || updatePlan.isPending}
+                    onClick={savePlan}
+                  >
+                    Save edits
+                  </button>
+                )}
+                <button
+                  className="btn-primary"
+                  disabled={!plan || generate.isPending}
+                  onClick={startGeneration}
+                >
+                  <SparklesIcon className="h-4 w-4" /> Generate tracks + covers
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(activeRun.status === "completed" ||
+            activeRun.status === "completed_with_errors") && (
+            <div className="mt-4 flex gap-2">
+              <Link className="btn-primary" to="/library">
+                Review tracks and covers
+              </Link>
+              <Link className="btn-ghost" to="/album">
+                Assemble album
+              </Link>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {(runs?.length ?? 0) > 1 && (
         <div>
-          <h3 className="font-medium text-slate-100">Prompt plan JSON</h3>
-          <p className="text-xs text-slate-500">
-            Required: prompts. A plan album_title is optional; each prompt can set album_title or album.
-            Your draft is saved in this browser.
-          </p>
+          <h3 className="mb-2 text-sm font-semibold text-slate-300">
+            Recent album runs
+          </h3>
+          <div className="grid gap-2">
+            {runs!.slice(0, 8).map((run) => (
+              <button
+                key={run.id}
+                className="rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-left hover:border-ink-600"
+                onClick={() => setActiveRunId(run.id)}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-sm text-slate-200">
+                    {run.plan?.album_title || run.brief}
+                  </span>
+                  <span className="shrink-0 text-xs text-slate-500">
+                    {stageLabel(run)}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
-        <Badge tone="blue">ACE-Step 1.5 / Local</Badge>
-      </div>
-      <textarea
-        className="input h-[28rem] resize-y font-mono text-sm leading-6"
-        value={promptJson}
-        onChange={(event) => setPromptJson(event.target.value)}
-        spellCheck={false}
-        placeholder={'{\n  "album_title": "Glass Transit",\n  "notes": "A nocturnal album arc",\n  "artwork_prompt": "Square abstract glass album cover, no text",\n  "prompts": [\n    {\n      "title": "Last Platform",\n      "genre": "ambient techno",\n      "prompt": "Instrumental…",\n      "duration": 180,\n      "album_title": "Custom Singles",\n      "notes": "Quiet opening track",\n      "artwork_prompt": "Empty glass platform at night, no text"\n    }\n  ]\n}'}
-      />
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {plan.prompts.length > 0 && <>
-            {plan.value?.album_title && <Badge tone="violet">{plan.value.album_title}</Badge>}
-            <Badge tone="green">{plan.prompts.length} track{plan.prompts.length === 1 ? "" : "s"}</Badge>
-            <Badge>{totalMinutes} min total</Badge>
-            {plan.value?.artwork_prompt && <Badge tone="amber">cover direction</Badge>}
-            {genres.slice(0, 4).map((genre) => <Badge key={genre} tone="blue">{genre}</Badge>)}
-          </>}
-          {plan.error && <span className="text-red-400">{plan.error}</span>}
-        </div>
-        <button className="btn-primary" disabled={plan.prompts.length === 0 || genTracks.isPending} onClick={generate}>
-          <SparklesIcon className="h-4 w-4" /> {genTracks.isPending ? "Submitting…" : `Generate ${plan.prompts.length || ""} track${plan.prompts.length === 1 ? "" : "s"}`}
-        </button>
-      </div>
-      {error && <div className="mt-2 text-sm text-red-400">{error}</div>}
-    </Card>
-
-    {generationJobs.length > 0 && <div className="mt-6"><h3 className="mb-2 text-sm font-semibold text-slate-300">Recent generations</h3><div className="grid gap-2">{generationJobs.map((job) => <Card key={job.id} className="!py-3"><div className="flex flex-wrap items-center justify-between gap-2"><span className="min-w-0 text-sm text-slate-300">{job.message || "queued"}</span><div className="flex items-center gap-2"><StatusBadge status={job.status} />{job.status === "failed" && <button className="btn-primary !text-xs" disabled={retryJob.isPending} onClick={() => retryJob.mutate(job.id)}>Retry</button>}{(job.status === "queued" || job.status === "in_progress") && <button className="btn-danger !text-xs" disabled={cancelJob.isPending} onClick={() => cancelJob.mutate(job.id)}>Cancel</button>}<button className="btn-ghost !text-xs" disabled={deleteJob.isPending} onClick={() => deleteJob.mutate(job.id)}>Remove</button></div></div>{job.status === "in_progress" && <div className="mt-2"><Progress value={job.progress} /></div>}{job.error && <div className="mt-1 text-xs text-red-400">{job.error}</div>}</Card>)}</div></div>}
-  </div>;
+      )}
+    </div>
+  );
 }

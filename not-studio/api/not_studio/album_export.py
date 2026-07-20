@@ -87,6 +87,7 @@ def _prepare_tracks(
     *,
     artist: str,
     cover_path: Path | None,
+    track_cover_paths: dict[str, Path] | None = None,
 ) -> tuple[list[str], list[Path], list[float]]:
     archive_names: list[str] = []
     paths: list[Path] = []
@@ -105,7 +106,7 @@ def _prepare_tracks(
                 artist=artist,
                 index=index,
                 total=total,
-                cover_path=cover_path,
+                cover_path=(track_cover_paths or {}).get(item.id, cover_path),
             )
         )
         archive_names.append(archive_name)
@@ -136,6 +137,7 @@ async def create_album_archive(
     *,
     artist: str = "Not Studio",
     cover_path: Path | None = None,
+    track_cover_paths: dict[str, Path] | None = None,
     include_track_videos: bool = False,
 ) -> None:
     """Package tagged FLACs and, when requested and covered, matching MP4s."""
@@ -148,10 +150,15 @@ async def create_album_archive(
             temp_dir,
             artist=artist,
             cover_path=cover_path,
+            track_cover_paths=track_cover_paths,
         )
-        if include_track_videos and cover_path is not None and cover_path.is_file():
-            for path in paths:
-                await video_export.render_track_video(path, cover_path, path.with_suffix(".mp4"))
+        if include_track_videos:
+            for item, path in zip(items, paths):
+                video_cover = (track_cover_paths or {}).get(item.id, cover_path)
+                if video_cover is not None and video_cover.is_file():
+                    await video_export.render_track_video(
+                        path, video_cover, path.with_suffix(".mp4")
+                    )
         cue = album_cue(album_title, names, [item.title for item in items], durations)
         await asyncio.to_thread(
             _write_archive,

@@ -1,19 +1,19 @@
 # not-studio-api
 
-FastAPI backend for Not Studio: prompt ideation, local ACE-Step 1.5 Text2Music
-generation, human review state, history, and album construction.
+FastAPI backend for Not Studio: local Qwen album planning, ACE-Step 1.5
+Text2Music, FLUX.2 Klein cover generation, review state, and album construction.
 
 The high-quality `acestep-v15-sft` music model runs with 50 diffusion steps and
 CFG. Apple Silicon Macs with 16 GB or less of unified memory instead select
-`acestep-v15-turbo` with its 8-step preset. It is paired with a device-selected ACE-Step 5 Hz language model for
-thinking and prompt refinement: 0.6B with PyTorch on Apple Silicon and CPU, and
-1.7B with vLLM on NVIDIA CUDA. Missing checkpoints are downloaded automatically
-on first startup.
+`acestep-v15-turbo` with its 8-step preset. It is paired with a device-selected
+ACE-Step 5 Hz language model for thinking and prompt refinement: 0.6B with
+PyTorch on Apple Silicon and CPU, and 1.7B with vLLM on NVIDIA CUDA. Missing
+checkpoints are downloaded automatically on first startup.
 
 Install and run:
 
 ```bash
-uv sync
+uv sync --locked
 uv run uvicorn not_studio.main:app --reload --port 8001
 ```
 
@@ -31,16 +31,19 @@ The combined `dev` and `prod` launchers run `uv sync --locked` and
 `yarn install --immutable` before starting their service processes.
 
 Jobs are visible through `/api/jobs`; live snapshots are streamed at
-`/api/jobs/ws`. Startup warms ACE-Step asynchronously in the persistent
-generation worker. `/api/health` stays available during warmup and reports the
-model state, selected device, and any preload error. A generation submitted
-while the model is loading waits for that worker and then reuses it.
+`/api/jobs/ws`. One exclusive model process swaps between Qwen, ACE-Step, and
+FLUX. `/api/health` reports the active accelerator family. Startup preloading is
+off by default so a natural-language request can load Qwen directly.
+
+Before first use on the CUDA host, run `uv run not-studio-preflight`, followed by
+`uv run not-studio-gpu-smoke` for a complete one-track pipeline test.
 
 Album export is handled by `/api/studio/albums/export`. Its optional
-`include_track_videos` flag defaults to `false`. When true and an album cover
-exists, `python-ffmpeg` adds one 1 fps H.264/yuv420p MP4 per FLAC with AAC-LC
-320 kbps audio. No MP4 is created without a cover. The removed multi-track
-video endpoints are no longer part of the API.
+`include_track_videos` flag defaults to `false`. When true, `python-ffmpeg` adds
+one 1 fps H.264/yuv420p MP4 per FLAC with AAC-LC 320 kbps audio. Each track uses
+its selected cover and falls back to the album cover; an MP4 is skipped only
+when neither exists. The removed multi-track video endpoints are no longer part
+of the API.
 
 From this directory, `uv run prod` starts the API on `0.0.0.0:8081` and the
 built UI on `0.0.0.0:8080`. Append `--no-model` to `uv run dev` or `uv run prod`
