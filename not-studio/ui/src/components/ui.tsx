@@ -46,7 +46,13 @@ const TONES: Record<Tone, string> = {
   blue: "bg-sky-500/15 text-sky-300",
 };
 
-export function Badge({ tone = "gray", children }: { tone?: Tone; children: ReactNode }) {
+export function Badge({
+  tone = "gray",
+  children,
+}: {
+  tone?: Tone;
+  children: ReactNode;
+}) {
   return <span className={cx("badge", TONES[tone])}>{children}</span>;
 }
 
@@ -65,7 +71,13 @@ export function StatusBadge({ status }: { status: string }) {
   return <Badge tone={map[status] ?? "gray"}>{status.replace("_", " ")}</Badge>;
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <label className="block">
       <span className="label">{label}</span>
@@ -96,49 +108,58 @@ export function Empty({ children }: { children: ReactNode }) {
 
 let activeAudioPlayer: Howl | null = null;
 
-export function AudioPlayer({ src, label }: { src: string; label: string }) {
+export function AudioPlayer({
+  src,
+  label,
+  durationHint = 0,
+}: {
+  src: string;
+  label: string;
+  durationHint?: number;
+}) {
   const sound = useRef<Howl | null>(null);
   const progressTimer = useRef<number | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(durationHint);
   const [position, setPosition] = useState(0);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    setPlaying(false);
-    setDuration(0);
-    setPosition(0);
-    setError("");
+  const stopProgressTimer = () => {
+    if (progressTimer.current !== null)
+      window.clearInterval(progressTimer.current);
+    progressTimer.current = null;
+  };
 
+  const syncProgress = (player: Howl) => {
+    const seek = player.seek();
+    setPosition(typeof seek === "number" ? seek : 0);
+    const nextDuration = player.duration();
+    if (Number.isFinite(nextDuration) && nextDuration > 0)
+      setDuration(nextDuration);
+  };
+
+  const startProgressTimer = (player: Howl) => {
+    stopProgressTimer();
+    syncProgress(player);
+    progressTimer.current = window.setInterval(() => syncProgress(player), 250);
+  };
+
+  const createPlayer = () => {
+    if (sound.current) return sound.current;
     let player: Howl;
-    const stopProgressTimer = () => {
-      if (progressTimer.current !== null) window.clearInterval(progressTimer.current);
-      progressTimer.current = null;
-    };
-    const syncProgress = () => {
-      const seek = player.seek();
-      setPosition(typeof seek === "number" ? seek : 0);
-      const nextDuration = player.duration();
-      if (Number.isFinite(nextDuration) && nextDuration > 0) setDuration(nextDuration);
-    };
-    const startProgressTimer = () => {
-      stopProgressTimer();
-      syncProgress();
-      progressTimer.current = window.setInterval(syncProgress, 100);
-    };
     player = new Howl({
       src: [src],
       format: ["flac"],
       html5: true,
-      preload: "metadata",
-      onload: syncProgress,
+      preload: false,
+      onload: () => syncProgress(player),
       onplay: () => {
         setPlaying(true);
-        startProgressTimer();
+        startProgressTimer(player);
       },
       onpause: () => {
         setPlaying(false);
-        syncProgress();
+        syncProgress(player);
         stopProgressTimer();
       },
       onstop: () => {
@@ -146,14 +167,18 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
         setPosition(0);
         stopProgressTimer();
       },
-      onseek: syncProgress,
+      onseek: () => syncProgress(player),
       onend: () => {
         setPlaying(false);
         setPosition(player.duration());
         stopProgressTimer();
         if (activeAudioPlayer === player) activeAudioPlayer = null;
       },
-      onloaderror: (_id, cause) => setError(`Could not load audio (${String(cause)})`),
+      onloaderror: (_id, cause) => {
+        setPlaying(false);
+        stopProgressTimer();
+        setError(`Could not load audio (${String(cause)})`);
+      },
       onplayerror: (_id, cause) => {
         setPlaying(false);
         stopProgressTimer();
@@ -161,29 +186,41 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
       },
     });
     sound.current = player;
+    return player;
+  };
+
+  useEffect(() => {
+    setPlaying(false);
+    setDuration(
+      Number.isFinite(durationHint) && durationHint > 0 ? durationHint : 0,
+    );
+    setPosition(0);
+    setError("");
 
     return () => {
       stopProgressTimer();
-      if (activeAudioPlayer === player) activeAudioPlayer = null;
-      player.unload();
+      const player = sound.current;
+      if (player && activeAudioPlayer === player) activeAudioPlayer = null;
+      player?.unload();
       sound.current = null;
     };
-  }, [src]);
+  }, [durationHint, src]);
 
   const toggle = () => {
-    const player = sound.current;
-    if (!player) return;
+    const player = createPlayer();
     if (player.playing()) {
       player.pause();
       return;
     }
-    if (activeAudioPlayer && activeAudioPlayer !== player) activeAudioPlayer.pause();
+    if (activeAudioPlayer && activeAudioPlayer !== player)
+      activeAudioPlayer.pause();
     activeAudioPlayer = player;
     setError("");
     player.play();
   };
 
-  const progressPercent = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
+  const progressPercent =
+    duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
 
   return (
     <div className="audio-player" title={error || label}>
@@ -193,7 +230,11 @@ export function AudioPlayer({ src, label }: { src: string; label: string }) {
         onClick={toggle}
         aria-label={`${playing ? "Pause" : "Play"} ${label}`}
       >
-        {playing ? <PauseIcon className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
+        {playing ? (
+          <PauseIcon className="h-4 w-4" />
+        ) : (
+          <PlayIcon className="h-4 w-4" />
+        )}
       </button>
       <span className="w-9 text-right text-[11px] tabular-nums text-slate-500">
         {fmtDuration(position)}

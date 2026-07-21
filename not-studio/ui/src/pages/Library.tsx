@@ -701,6 +701,7 @@ export default function Library() {
                   <AudioPlayer
                     src={api.audioUrl(track.id)}
                     label={track.title}
+                    durationHint={track.duration_seconds}
                   />
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-500">Album</span>

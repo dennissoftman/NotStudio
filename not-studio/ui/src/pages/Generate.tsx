@@ -185,11 +185,6 @@ export default function Generate() {
       <SectionTitle
         title="Create an album"
         subtitle="Describe the music and its story. A local planner turns it into tracks, then ACE-Step and FLUX generate the album."
-        actions={
-          <Link className="btn-ghost" to="/library">
-            Open library
-          </Link>
-        }
       />
 
       <Card className="overflow-hidden !border-accent/30 bg-gradient-to-br from-accent/10 via-ink-900 to-ink-900">
