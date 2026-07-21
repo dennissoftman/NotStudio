@@ -29,6 +29,14 @@ class PromptSpec(BaseModel):
     artwork_prompt: str | None = Field(default=None, max_length=2000)
 
 
+class VisualDirection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    palette: list[str] = Field(default_factory=list, max_length=8)
+    motifs: list[str] = Field(default_factory=list, max_length=12)
+    style: str = Field(default="", max_length=1000)
+    avoid: list[str] = Field(default_factory=list, max_length=12)
+
+
 class GenerateAlbumRequest(BaseModel):
     mood: str = Field(min_length=1, max_length=80)
     styles: list[str] = Field(default_factory=list, max_length=8)
@@ -43,9 +51,49 @@ class GenerateAlbumRequest(BaseModel):
 class PromptPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
     album_title: str | None = Field(default=None, max_length=160)
+    summary: str | None = Field(default=None, max_length=2000)
     notes: str | None = Field(default=None, max_length=2000)
+    visual_direction: VisualDirection | None = None
     artwork_prompt: str | None = Field(default=None, max_length=2000)
     prompts: list[PromptSpec] = Field(min_length=1, max_length=20)
+
+
+class CreateGenerationRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    brief: str = Field(min_length=10, max_length=8000)
+    artwork_guidance: str = Field(default="", max_length=4000)
+    style_reference_id: str | None = None
+    cover_output_size: int = Field(default=2048, ge=512, le=4096, multiple_of=64)
+    auto_start: bool = False
+    duration_default: float = Field(default=180.0, ge=15.0, le=240.0)
+
+
+class UpdateGenerationPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plan: PromptPlan
+
+
+class GenerateRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    generate_covers: bool = True
+
+
+class GenerateCoverRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt: str | None = Field(default=None, max_length=4000)
+    style_reference_id: str | None = None
+    reference_mode: Literal["off", "loose", "strong"] = "loose"
+    output_size: int = Field(default=2048, ge=512, le=4096, multiple_of=64)
+    seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
+
+
+class GenerateAllCoversRequest(GenerateCoverRequest):
+    track_prompts: dict[str, str] = Field(default_factory=dict)
+
+
+class SelectCoverRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    selected: bool = True
 
 
 class GenerateTracksRequest(PromptPlan):

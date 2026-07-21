@@ -12,10 +12,19 @@ from .config import get_settings
 from .db import init_db
 from .routers import api_router
 from .tasks.jobs import fail_interrupted_jobs, mark_jobs_cancelled_by_shutdown
-from .tasks.processes import run_in_reusable_process, shutdown_reusable_processes
+from .tasks.processes import (
+    configure_model_idle_timeout,
+    model_process_status,
+    run_in_model_process,
+    shutdown_reusable_processes,
+)
 from .tasks.registry import shutdown_job_tasks
 
 logger = logging.getLogger(__name__)
+
+# Compatibility seam retained for tests and downstream monkeypatches from the
+# original reusable-worker implementation.
+run_in_reusable_process = run_in_model_process
 
 
 async def preload_generation_model(app: FastAPI) -> None:
@@ -67,6 +76,7 @@ async def preload_generation_model(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_model_idle_timeout(get_settings().gpu_model_idle_seconds)
     await init_db()
     await fail_interrupted_jobs()
     preload_task = asyncio.create_task(
@@ -106,6 +116,7 @@ def create_app() -> FastAPI:
             "jobs": "local-background",
             "model": getattr(app.state, "model", None),
             "providers": [p.model_dump() for p in provider_infos()],
+            "accelerator": model_process_status(),
         }
 
     return app

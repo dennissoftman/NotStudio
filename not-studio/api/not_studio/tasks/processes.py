@@ -171,7 +171,87 @@ class ReusableProcess:
             self._close_queues()
 
 
+class ExclusiveModelProcess:
+    """One reusable child at a time, swapping processes between GPU model families."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._family: str | None = None
+        self._worker: ReusableProcess | None = None
+        self._idle_seconds = 0
+        self._idle_task: asyncio.Task[None] | None = None
+        self._generation = 0
+
+    def configure_idle_timeout(self, seconds: int) -> None:
+        self._idle_seconds = max(0, seconds)
+
+    def _cancel_idle_task(self) -> None:
+        if self._idle_task is not None:
+            self._idle_task.cancel()
+            self._idle_task = None
+
+    def _schedule_idle_shutdown(self) -> None:
+        self._cancel_idle_task()
+        if self._idle_seconds <= 0 or self._worker is None:
+            return
+        generation = self._generation
+
+        async def close_when_idle() -> None:
+            try:
+                await asyncio.sleep(self._idle_seconds)
+                async with self._lock:
+                    if generation != self._generation or self._worker is None:
+                        return
+                    await self._worker.shutdown()
+                    self._worker = None
+                    self._family = None
+            except asyncio.CancelledError:
+                return
+
+        self._idle_task = asyncio.create_task(close_when_idle())
+
+    def status(self) -> dict[str, Any]:
+        worker = self._worker
+        return {
+            "family": self._family,
+            "status": "busy" if self._lock.locked() else ("ready" if worker else "idle"),
+        }
+
+    def is_busy(self, family: str | None = None) -> bool:
+        return self._lock.locked() and (family is None or family == self._family)
+
+    async def call(self, family: str, func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+        self._cancel_idle_task()
+        async with self._lock:
+            self._generation += 1
+            if self._family != family:
+                if self._worker is not None:
+                    await self._worker.shutdown()
+                self._worker = ReusableProcess(f"gpu-{family}")
+                self._family = family
+            assert self._worker is not None
+            try:
+                result = await self._worker.call(func, *args, **kwargs)
+                self._schedule_idle_shutdown()
+                return result
+            except asyncio.CancelledError:
+                # ReusableProcess terminates its child on cancellation. Clear the
+                # slot so a later call cannot mistake the dead process for a warm model.
+                self._worker = None
+                self._family = None
+                raise
+
+    async def shutdown(self) -> None:
+        self._cancel_idle_task()
+        async with self._lock:
+            if self._worker is not None:
+                await self._worker.shutdown()
+            self._worker = None
+            self._family = None
+
+
 _reusable_processes: dict[str, ReusableProcess] = {}
+_model_process = ExclusiveModelProcess()
 
 
 def reusable_process_busy(name: str) -> bool:
@@ -189,7 +269,24 @@ async def run_in_reusable_process(
     return await worker.call(func, *args, **kwargs)
 
 
+async def run_in_model_process(family: str, func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    return await _model_process.call(family, func, *args, **kwargs)
+
+
+def model_process_busy(family: str | None = None) -> bool:
+    return _model_process.is_busy(family)
+
+
+def model_process_status() -> dict[str, Any]:
+    return _model_process.status()
+
+
+def configure_model_idle_timeout(seconds: int) -> None:
+    _model_process.configure_idle_timeout(seconds)
+
+
 async def shutdown_reusable_processes() -> None:
     workers = list(_reusable_processes.values())
     _reusable_processes.clear()
     await asyncio.gather(*(worker.shutdown() for worker in workers), return_exceptions=True)
+    await _model_process.shutdown()

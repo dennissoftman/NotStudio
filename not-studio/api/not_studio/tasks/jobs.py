@@ -10,11 +10,14 @@ from ..audio import dsp
 from ..config import get_settings
 from ..constants import utcnow
 from ..db import session_scope
-from ..models import HistoryItem, Job
-from .processes import reusable_process_busy, run_in_reusable_process
+from ..models import GenerationRun, HistoryItem, Job
+from .processes import model_process_busy, run_in_model_process
 from .events import notify_jobs_changed
 
 RUNNING_STATUSES = ("queued", "in_progress")
+
+# Backward-compatible monkeypatch seam; now routes through the exclusive model slot.
+run_in_reusable_process = run_in_model_process
 
 
 def _album_for_spec(spec: dict[str, Any], default: dict[str, Any]) -> dict[str, Any]:
@@ -65,6 +68,15 @@ async def fail_interrupted_jobs() -> int:
             job.error = "API restarted before this local job finished"
             job.message = "Interrupted by API restart"
             session.add(job)
+            run_id = (job.params or {}).get("generation_run_id") or (job.params or {}).get("run_id")
+            if run_id:
+                run = await session.get(GenerationRun, run_id)
+                if run:
+                    run.status = "failed"
+                    run.stage = run.stage or "interrupted"
+                    run.error = "API restarted before this local job finished"
+                    run.updated_at = now
+                    session.add(run)
         await session.commit()
         return len(jobs)
 
@@ -94,6 +106,20 @@ async def is_job_cancelled(job_id: str) -> bool:
         return job is None or job.status == "cancelled"
 
 
+async def update_generation_run(run_id: str | None, **fields: Any) -> None:
+    if not run_id:
+        return
+    async with session_scope() as session:
+        run = await session.get(GenerationRun, run_id)
+        if run is None:
+            return
+        for key, value in fields.items():
+            setattr(run, key, value)
+        run.updated_at = utcnow()
+        session.add(run)
+        await session.commit()
+
+
 async def generate_tracks_job(job_id: str) -> dict[str, Any]:
     settings = get_settings()
     await update_job(
@@ -111,15 +137,19 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
     prompts = list(params.get("prompts") or [])
     album = dict(params.get("album") or {})
     replacement_item_id = params.get("replacement_item_id")
+    generation_run_id = params.get("generation_run_id")
     provider = "ace_step_local"
     model = "ACE-Step 1.5"
     sr, ch = settings.sample_rate, settings.channels
     if not prompts:
         await update_job(job_id, status="failed", error="no prompts", finished_at=utcnow())
         return {"error": "no prompts"}
+    await update_generation_run(
+        generation_run_id, status="generating_tracks", stage="generating_tracks", error=None
+    )
 
     try:
-        if reusable_process_busy("ace-step-local"):
+        if model_process_busy():
             await update_job(job_id, progress=0.05, message="Queued for local model")
         produced = await run_in_reusable_process(
             "ace-step-local",
@@ -133,11 +163,17 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
             settings.audio_dir,
         )
     except asyncio.CancelledError:
+        await update_generation_run(
+            generation_run_id, status="cancelled", stage="cancelled", error=None
+        )
         await update_job(job_id, status="cancelled", message="Cancelled", finished_at=utcnow())
         return {"cancelled": True}
     except Exception as exc:  # noqa: BLE001
         if await is_job_cancelled(job_id):
             return {"cancelled": True}
+        await update_generation_run(
+            generation_run_id, status="failed", stage="generating_tracks", error=str(exc)
+        )
         await update_job(job_id, status="failed", error=str(exc), finished_at=utcnow())
         return {"error": str(exc)}
 
@@ -175,6 +211,7 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
                     }
                 )
                 item.title = spec.get("title", item.title)
+                item.album_id = track_album.get("id") or item.album_id
                 item.job_id = job_id
                 item.path = str(path)
                 item.sample_rate = info["sample_rate"]
@@ -187,6 +224,7 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
                 item = HistoryItem(
                     kind="track",
                     title=spec.get("title", "Track"),
+                    album_id=track_album.get("id"),
                     job_id=job_id,
                     path=str(path),
                     sample_rate=info["sample_rate"],
@@ -212,15 +250,62 @@ async def generate_tracks_job(job_id: str) -> dict[str, Any]:
             if old_path is not None and old_path != path:
                 old_path.unlink(missing_ok=True)
 
+    cover_ids: list[str] = []
+    failed_cover_ids: list[str] = []
+    if generation_run_id and params.get("generate_covers", True):
+        try:
+            async with session_scope() as session:
+                run = await session.get(GenerationRun, generation_run_id)
+                if run:
+                    run.status = "generating_covers"
+                    run.stage = "generating_covers"
+                    run.updated_at = utcnow()
+                    session.add(run)
+                    await session.commit()
+            await update_job(job_id, progress=0.68, message="Preparing album artwork")
+            from .artwork import create_run_cover_assets, render_cover_assets
+
+            asset_ids = await create_run_cover_assets(
+                job_id,
+                generation_run_id,
+                str(album.get("id")),
+                track_ids,
+            )
+            cover_ids, failed_cover_ids = await render_cover_assets(job_id, asset_ids)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - audio remains usable on artwork failure
+            failed_cover_ids = [f"pipeline: {exc}"]
+
+    if generation_run_id:
+        async with session_scope() as session:
+            run = await session.get(GenerationRun, generation_run_id)
+            if run:
+                run.status = "completed_with_errors" if failed_cover_ids else "completed"
+                run.stage = run.status
+                run.error = "; ".join(failed_cover_ids) if failed_cover_ids else None
+                run.updated_at = utcnow()
+                session.add(run)
+                await session.commit()
+
     await update_job(
         job_id,
         status="completed",
         progress=1.0,
-        message=f"Generated {len(track_ids)} track(s)",
+        message=(
+            f"Generated {len(track_ids)} track(s) and {len(cover_ids)} cover(s)"
+            + (f"; {len(failed_cover_ids)} cover error(s)" if failed_cover_ids else "")
+        ),
         finished_at=utcnow(),
-        result={"track_ids": track_ids, "replacement_item_id": replacement_item_id},
+        result={
+            "track_ids": track_ids,
+            "cover_ids": cover_ids,
+            "failed_cover_ids": failed_cover_ids,
+            "replacement_item_id": replacement_item_id,
+            "generation_run_id": generation_run_id,
+        },
     )
-    return {"track_ids": track_ids}
+    return {"track_ids": track_ids, "cover_ids": cover_ids}
 
 
 def _render_tracks(

@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from ..db import session_scope
 from ..deps import get_or_404, get_session
-from ..models import HistoryItem
+from ..models import CoverAsset, HistoryItem
 
 router = APIRouter(prefix="/history", tags=["history"])
 
@@ -58,5 +58,12 @@ async def get_audio(item_id: str) -> FileResponse:
 async def delete_item(item_id: str, session: AsyncSession = Depends(get_session)) -> None:
     item = await get_or_404(session, HistoryItem, item_id)
     Path(item.path).unlink(missing_ok=True)
+    covers = await session.execute(
+        select(CoverAsset).where(CoverAsset.owner_type == "track", CoverAsset.owner_id == item.id)
+    )
+    for cover in covers.scalars().all():
+        if cover.path:
+            Path(cover.path).unlink(missing_ok=True)
+        await session.delete(cover)
     await session.delete(item)
     await session.commit()

@@ -1,39 +1,43 @@
 # Not Studio
 
-Not Studio is a human-in-the-loop music generation and album construction
-workspace built around ACE-Step.
+Not Studio is a local, human-in-the-loop album generation workspace built around
+Qwen, ACE-Step, and FLUX.2 Klein.
 
 ## Workflow
 
-1. Copy the GPT prompt kit from the Generate page.
-2. Ask GPT for a JSON album plan using the included schema and taste profile.
-3. Paste the plan and generate instrumental tracks with ACE-Step 1.5 Text2Music.
-4. Listen, keep favorites, or regenerate a candidate in place.
-5. Organize tracks into albums and attach a dedicated album cover.
+1. Describe an album, its track count, mood, sound, and story in ordinary language.
+2. Review or edit the structured plan produced locally by Qwen3-4B-Instruct.
+3. Generate instrumental tracks with ACE-Step 1.5.
+4. Generate one album cover and one distinct cover per track with FLUX.2 Klein 4B.
+5. Listen, keep favorites, regenerate music or covers, and select cover versions.
 6. Build the track order and download tagged FLACs plus a CUE in one ZIP.
 7. Optionally include a static-cover YouTube MP4 for every album track.
 
 ## Capabilities
 
-| Capability                              | Where                                               |
-| --------------------------------------- | --------------------------------------------------- |
-| Paste-first prompt generation           | `ui/src/pages/Generate.tsx`, `/api/studio/generate` |
-| GPT schema + taste export               | `/api/studio/prompt-kit`                            |
-| Human review state                      | `/api/studio/tracks/{id}/review`                    |
-| In-place track regeneration             | `/api/studio/tracks/{id}/regenerate`                |
-| Embedded track artwork                  | `/api/studio/tracks/{id}/artwork`                   |
-| Album cover upload                      | `/api/studio/albums/artwork`                        |
-| Album ZIP, CUE, and optional MP4 export | `/api/studio/albums/export`                         |
-| Track history/playback                  | `/api/studio/tracks`, `/api/history/{id}/audio`     |
-| Music generation                        | Local ACE-Step 1.5 Text2Music                       |
+| Capability                              | Where                                                  |
+| --------------------------------------- | ------------------------------------------------------ |
+| Natural-language album planning         | `/api/studio/album-runs`                               |
+| Editable structured plan                | `/api/studio/album-runs/{id}/plan`                     |
+| End-to-end local generation             | `/api/studio/album-runs/{id}/generate`                 |
+| Reference-image visual guidance         | `/api/studio/style-references`                         |
+| Versioned album and track covers        | `/api/studio/albums/{id}/covers`, `tracks/{id}/covers` |
+| Legacy paste-first generation           | `/api/studio/generate`                                 |
+| Human review and music regeneration     | `/api/studio/tracks/{id}/review`, `regenerate`         |
+| Album ZIP, CUE, and optional MP4 export | `/api/studio/albums/export`                            |
+| Track history/playback                  | `/api/studio/tracks`, `/api/history/{id}/audio`        |
 
-ACE-Step uses the high-quality `acestep-v15-sft` music checkpoint with 50
-diffusion steps and CFG. Apple Silicon Macs with 16 GB or less of unified memory
-automatically use the lower-memory turbo checkpoint and its 8-step preset. The
-app selects its 5 Hz language model by accelerator: 0.6B/PyTorch on Apple Silicon
-and CPU, and 1.7B/vLLM on NVIDIA CUDA. The language
-model's thinking path is enabled for metadata, prompt refinement, and semantic
-audio-code generation.
+The default models are:
+
+- `Qwen/Qwen3-4B-Instruct-2507` for album planning (Apache 2.0).
+- ACE-Step 1.5 for instrumental Text2Music.
+- `black-forest-labs/FLUX.2-klein-4B` for generation and reference-guided covers
+  (Apache 2.0).
+
+ACE-Step uses `acestep-v15-sft` with 50 diffusion steps on normal hardware.
+Apple Silicon machines with 16 GB or less automatically use its lower-memory
+turbo checkpoint. ACE-Step's own 5 Hz language model remains dedicated to music
+generation; it is not used as the album planner.
 
 ## Quick start
 
@@ -42,61 +46,81 @@ cd api
 uv run dev
 ```
 
-Before starting either service, the launcher runs `uv sync --locked` for the
-API and `yarn install --immutable` for the UI. Dependency preparation failures
-stop startup. `uv sync` installs ACE-Step 1.5 from its
-[official Git repository](https://github.com/ace-step/ACE-Step-1.5).
-`uv run dev` starts the API on `http://localhost:8001` and the UI on
-`http://localhost:5173`. Generation jobs run in cancellable worker processes,
-and job state reaches the UI through a WebSocket instead of browser polling.
+The launcher runs `uv sync --locked` for the API and `yarn install --immutable`
+for the UI. It starts the API at `http://localhost:8001` and Vite at
+`http://localhost:5173`. `uv run prod` builds the UI and serves it on port 8080
+with the API on port 8081.
 
-For a production-style local launch, run `uv run prod` (shorthand for
-`uv run dev --production`). It builds and serves the UI on `0.0.0.0:8080` and
-starts the API without reload on `0.0.0.0:8081`.
+Jobs are cancellable and their state is streamed to the UI through
+`/api/jobs/ws`. One exclusive accelerator process swaps between Qwen, ACE-Step,
+and FLUX, so two model families are never resident on the GPU simultaneously.
+The most recently used model is released after the configured idle timeout.
 
-## Prompt plans and generation
+## GPU setup and validation
 
-Not Studio does not use its embedded ACE-Step language model to create the
-album plan. The UI exposes a copyable GPT prompt kit containing the exact JSON
-schema, an example, and up to 20 recent liked prompts. After the plan is pasted,
-the local language model refines each music prompt and produces semantic audio
-codes. The top-level object requires a `prompts` list; `album_title`, `notes`,
-and `artwork_prompt` provide album defaults. Every prompt requires `title`,
-`genre`, `prompt`, and `duration`.
+The production local path requires an NVIDIA CUDA host with at least 12 GiB
+VRAM; 16 GiB is recommended. Reserve at least 35 GiB of free disk for model
+caches and media. On the target machine run:
 
-The ACE-Step 1.5 adapter currently fixes the task to prompt-first instrumental
-`text2music` with empty lyrics, preserving the existing product flow. The
-adapter keeps ACE-Step task and lyrics inputs behind an explicit request
-boundary so lyric-driven, retake, edit, and extend workflows can be introduced
-without replacing album or job infrastructure.
+```bash
+cd api
+uv sync --locked
+uv run not-studio-preflight
+uv run not-studio-gpu-smoke
+```
 
-ACE-Step loads asynchronously in the persistent generation worker at startup.
-`/api/health` exposes `loading`, `ready`, `failed`, or `disabled`, and the
-sidebar mirrors that state. Set
-`NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP=false` for an intentional cold start,
-or use `uv run dev --no-model` for UI-only work.
+`not-studio-preflight` is read-only and reports CUDA, VRAM, RAM, disk, and
+required imports. The smoke test sequentially loads all three model families,
+creates a schema-valid one-track plan, renders a 15-second track, generates a
+cover, and stores results under `data/smoke/`. Pass `--skip-audio` for a faster
+planner/image-only check. First use downloads upstream model weights.
 
-## Library and album export
+## Planning and generation
 
-The Library lists every generated track with search, album tabs, and sorting by
-generation date, name, or album. Assign tracks to existing or new albums and
-attach a PNG, JPEG, or WebP album cover. The Album page loads tracks into an
-editable ordered list.
+The Generate page accepts one free-form brief and an optional style-reference
+image. Qwen produces JSON constrained by the same Pydantic schema used by the
+API. It receives up to 20 liked tracks as preference signals. Semantic checks
+then enforce requested track count, unique titles, duration limits, sufficiently
+specific ACE-Step prompts, and album plus per-track artwork prompts.
 
-Album export downloads a ZIP containing numbered FLAC copies, album and track
-metadata, a multi-file CUE, and the cover as `<album name>.png`. When a cover is
-present it replaces the embedded picture on each exported FLAC copy; library
-files remain unchanged.
+Plans are editable before expensive generation begins. Advanced users can edit
+the raw JSON; the original paste-first `/api/studio/generate` endpoint remains
+available for integrations.
 
-The “Include a YouTube MP4 for each track” checkbox is off by default. When
-enabled and an album cover exists, the ZIP also contains one MP4 beside each
-FLAC. The cover is held at 1 fps and encoded as H.264 high-profile/yuv420p with
-a slow still-image preset; audio is AAC-LC at 320 kbps. Fast-start metadata is
-enabled. If the cover is absent, the FLAC album is still exported and MP4
-creation is skipped.
+The default cover path generates at 1024×1024 and resizes to a configurable
+2048×2048 final PNG. Supported final sizes are constrained by the backend and
+default to 2048. A style-reference image is normalized, stripped of metadata,
+stored immutably, and sent directly to FLUX.2 Klein's reference-image input.
 
-Track previews use a custom Howler player backed by HTML5 audio streaming, with
-play, pause, seek, elapsed time, and one-active-track coordination.
+Audio success is independent from artwork success. A failed cover leaves tracks
+usable and can be retried. Each generation or manual upload creates an immutable
+cover version; selecting a version never deletes previous results.
+
+## Library and export
+
+The Library supports searching, album assignment, likes, audio regeneration,
+manual artwork upload, cover regeneration, and cover-version selection. Legacy
+title-keyed albums are assigned stable IDs automatically during database startup.
+
+Album export creates numbered FLAC copies, metadata, a multi-file CUE, and the
+selected album cover. Each FLAC and optional MP4 uses its selected track cover,
+falling back to the album cover when needed. Library source files are unchanged.
+
+## Configuration
+
+Copy `api/.env.example` to `.env`. Important settings include:
+
+- `NOT_STUDIO_PLANNER_MODEL`
+- `NOT_STUDIO_IMAGE_MODEL`
+- `NOT_STUDIO_COVER_GENERATION_SIZE`
+- `NOT_STUDIO_COVER_OUTPUT_SIZE`
+- `NOT_STUDIO_COVER_MAX_OUTPUT_SIZE`
+- `NOT_STUDIO_GPU_MODEL_IDLE_SECONDS`
+- `NOT_STUDIO_TRACK_AUTHOR`
+
+Startup model preloading is off by default because Qwen is normally the first
+stage. Set `NOT_STUDIO_PRELOAD_LOCAL_MODEL_ON_STARTUP=true` only for music-only
+workflows. Use `uv run dev --no-model` for UI-only work.
 
 ## Verification
 
@@ -110,6 +134,3 @@ uv lock --check
 cd ../ui
 yarn build
 ```
-
-Generated and exported FLACs include artist, year, and ISO release-date tags.
-Set `NOT_STUDIO_TRACK_AUTHOR` to override the default artist, `Not Studio`.

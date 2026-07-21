@@ -36,7 +36,20 @@ class Settings(BaseSettings):
     track_author: str = "Not Studio"
 
     # Track generation -----------------------------------------------------
-    preload_local_model_on_startup: bool = True
+    preload_local_model_on_startup: bool = False
+
+    # End-to-end generation -----------------------------------------------
+    planner_provider: str = "qwen_local"
+    planner_model: str = "Qwen/Qwen3-4B-Instruct-2507"
+    planner_max_model_len: int = 8192
+    planner_gpu_memory_utilization: float = 0.80
+    image_provider: str = "flux2_klein_local"
+    image_model: str = "black-forest-labs/FLUX.2-klein-4B"
+    cover_generation_size: int = 1024
+    cover_output_size: int = 2048
+    cover_max_output_size: int = 4096
+    cover_steps: int = 4
+    gpu_model_idle_seconds: int = 180
 
     def model_post_init(self, __context: object) -> None:
         self.track_author = self.track_author.strip() or "Not Studio"
@@ -63,6 +76,14 @@ class Settings(BaseSettings):
     def album_artwork_path(self, album_title: str) -> Path:
         key = sha256(album_title.strip().encode("utf-8")).hexdigest()
         return self.album_artwork_dir / f"{key}.png"
+
+    @property
+    def cover_dir(self) -> Path:
+        return self._subdir("covers")
+
+    @property
+    def style_reference_dir(self) -> Path:
+        return self._subdir("style-references")
 
 
 @lru_cache

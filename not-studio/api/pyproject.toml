@@ -19,6 +19,11 @@ dependencies = [
     "python-ffmpeg>=2.0.12,<3",
     "pillow>=11.0",
     "psutil>=6.0",
+    "diffusers>=0.36.0",
+    "transformers>=4.51.0",
+    "accelerate>=1.2.0",
+    "safetensors>=0.4.5",
+    "outlines>=1.2.0",
     "ace-step",
 ]
 
@@ -30,6 +35,8 @@ ace-step = { git = "https://github.com/ace-step/ACE-Step-1.5.git" }
 dev = "not_studio.dev:main"
 # `uv run prod` — shorthand for `uv run dev --production`.
 prod = "not_studio.dev:prod"
+not-studio-preflight = "not_studio.preflight:main"
+not-studio-gpu-smoke = "not_studio.gpu_smoke:main"
 
 [dependency-groups]
 dev = [

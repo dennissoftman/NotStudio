@@ -16,8 +16,9 @@ from sqlmodel import select
 
 from ..album_export import create_album_archive, safe_filename
 from ..config import get_settings
+from ..constants import new_id, utcnow
 from ..deps import get_session
-from ..models import HistoryItem, Job
+from ..models import Album, CoverAsset, HistoryItem, Job
 from ..schemas import (
     GenerateAlbumRequest,
     GenerateTracksRequest,
@@ -125,13 +126,42 @@ async def export_album(
     output = tempfile.NamedTemporaryFile(prefix="not-studio-album-", suffix=".zip", delete=False)
     output.close()
     output_path = Path(output.name)
+    album_cover_path = settings.album_artwork_path(payload.title)
+    album_ids = {item.album_id for item in items if item.album_id}
+    if len(album_ids) == 1:
+        album_id = next(iter(album_ids))
+        selected_album_cover = await session.execute(
+            select(CoverAsset).where(
+                CoverAsset.owner_type == "album",
+                CoverAsset.owner_id == album_id,
+                CoverAsset.selected.is_(True),
+            )
+        )
+        cover = selected_album_cover.scalar_one_or_none()
+        if cover and Path(cover.path).is_file():
+            album_cover_path = Path(cover.path)
+    track_cover_paths: dict[str, Path] = {}
+    if items:
+        selected_track_covers = await session.execute(
+            select(CoverAsset).where(
+                CoverAsset.owner_type == "track",
+                CoverAsset.owner_id.in_([item.id for item in items]),
+                CoverAsset.selected.is_(True),
+            )
+        )
+        track_cover_paths = {
+            cover.owner_id: Path(cover.path)
+            for cover in selected_track_covers.scalars().all()
+            if Path(cover.path).is_file()
+        }
     try:
         await create_album_archive(
             payload.title.strip(),
             items,
             output_path,
             artist=settings.track_author,
-            cover_path=settings.album_artwork_path(payload.title),
+            cover_path=album_cover_path,
+            track_cover_paths=track_cover_paths,
             include_track_videos=payload.include_track_videos,
         )
     except Exception as exc:  # noqa: BLE001
@@ -150,6 +180,7 @@ async def export_album(
 async def set_album_artwork(
     title: str = Form(..., min_length=1, max_length=160),
     file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
     """Store one album cover as PNG, converting supported source formats."""
     settings = get_settings()
@@ -172,12 +203,74 @@ async def set_album_artwork(
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Could not read album artwork: {exc}") from exc
-    return {"title": title.strip(), "updated_at": datetime.now(UTC).isoformat()}
+    updated_at = datetime.now(UTC).isoformat()
+    album_query = await session.execute(
+        select(Album).where(Album.title == title.strip()).order_by(Album.created_at.desc()).limit(1)
+    )
+    album = album_query.scalar_one_or_none()
+    cover_id = ""
+    if album:
+        selected = await session.execute(
+            select(CoverAsset).where(
+                CoverAsset.owner_type == "album",
+                CoverAsset.owner_id == album.id,
+                CoverAsset.selected.is_(True),
+            )
+        )
+        for current in selected.scalars().all():
+            current.selected = False
+            current.selected_at = None
+            session.add(current)
+        versions = await session.execute(
+            select(CoverAsset).where(
+                CoverAsset.owner_type == "album", CoverAsset.owner_id == album.id
+            )
+        )
+        asset_id = new_id()
+        immutable_path = settings.cover_dir / f"{asset_id}.png"
+        immutable_path.write_bytes(destination.read_bytes())
+        asset = CoverAsset(
+            id=asset_id,
+            owner_type="album",
+            owner_id=album.id,
+            version=len(versions.scalars().all()) + 1,
+            status="ready",
+            selected=True,
+            path=str(immutable_path),
+            width=image.width,
+            height=image.height,
+            size_bytes=immutable_path.stat().st_size,
+            provider="manual_upload",
+            model="manual_upload",
+            selected_at=utcnow(),
+        )
+        session.add(asset)
+        await session.commit()
+        cover_id = asset.id
+    return {"title": title.strip(), "updated_at": updated_at, "cover_id": cover_id}
 
 
 @router.get("/albums/artwork")
-async def get_album_artwork(title: str = Query(min_length=1, max_length=160)) -> FileResponse:
+async def get_album_artwork(
+    title: str = Query(min_length=1, max_length=160),
+    session: AsyncSession = Depends(get_session),
+) -> FileResponse:
     path = get_settings().album_artwork_path(title)
+    album_query = await session.execute(
+        select(Album).where(Album.title == title.strip()).order_by(Album.created_at.desc()).limit(1)
+    )
+    album = album_query.scalar_one_or_none()
+    if album:
+        selected = await session.execute(
+            select(CoverAsset).where(
+                CoverAsset.owner_type == "album",
+                CoverAsset.owner_id == album.id,
+                CoverAsset.selected.is_(True),
+            )
+        )
+        cover = selected.scalar_one_or_none()
+        if cover and Path(cover.path).is_file():
+            path = Path(cover.path)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Album artwork not found")
     return FileResponse(
@@ -230,7 +323,7 @@ def _genres(examples: list[TasteExample]) -> set[str]:
 
 @router.get("/prompt-kit", response_model=PromptKitResponse)
 async def get_prompt_kit(session: AsyncSession = Depends(get_session)) -> PromptKitResponse:
-    """Return a GPT-ready prompt contract enriched with the user's reviews."""
+    """Return an external-LLM prompt contract enriched with the user's reviews."""
     res = await session.execute(
         select(HistoryItem)
         .where(HistoryItem.kind == "track")
@@ -353,8 +446,22 @@ async def set_track_album(
     meta = dict(item.meta or {})
     if payload.album_title is None:
         meta.pop("album", None)
+        item.album_id = None
     else:
+        existing = await session.execute(
+            select(Album)
+            .where(Album.title == payload.album_title)
+            .order_by(Album.created_at.desc())
+            .limit(1)
+        )
+        album_record = existing.scalar_one_or_none()
+        if album_record is None:
+            album_record = Album(title=payload.album_title)
+            session.add(album_record)
+            await session.flush()
+        item.album_id = album_record.id
         album = dict(meta.get("album") or {})
+        album["id"] = album_record.id
         album["title"] = payload.album_title
         album["assigned_at"] = datetime.now(UTC).isoformat()
         meta["album"] = album
@@ -444,7 +551,42 @@ async def set_track_artwork(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Could not embed artwork: {exc}") from exc
     meta = dict(item.meta or {})
-    meta["artwork"] = {"mime": mime, "updated_at": datetime.now(UTC).isoformat()}
+    updated_at = datetime.now(UTC)
+    selected = await session.execute(
+        select(CoverAsset).where(
+            CoverAsset.owner_type == "track",
+            CoverAsset.owner_id == item.id,
+            CoverAsset.selected.is_(True),
+        )
+    )
+    for current in selected.scalars().all():
+        current.selected = False
+        current.selected_at = None
+        session.add(current)
+    versions = await session.execute(
+        select(CoverAsset).where(CoverAsset.owner_type == "track", CoverAsset.owner_id == item.id)
+    )
+    asset_id = new_id()
+    suffix = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}[mime]
+    immutable_path = get_settings().cover_dir / f"{asset_id}{suffix}"
+    immutable_path.write_bytes(data)
+    asset = CoverAsset(
+        id=asset_id,
+        owner_type="track",
+        owner_id=item.id,
+        version=len(versions.scalars().all()) + 1,
+        status="ready",
+        selected=True,
+        path=str(immutable_path),
+        mime=mime,
+        size_bytes=len(data),
+        provider="manual_upload",
+        model="manual_upload",
+        selected_at=updated_at,
+    )
+    session.add(asset)
+    meta["cover_asset_id"] = asset.id
+    meta["artwork"] = {"mime": mime, "updated_at": updated_at.isoformat()}
     item.meta = meta
     item.size_bytes = path.stat().st_size
     session.add(item)
@@ -458,6 +600,20 @@ async def get_track_artwork(item_id: str, session: AsyncSession = Depends(get_se
     item = await session.get(HistoryItem, item_id)
     if item is None or item.kind != "track":
         raise HTTPException(status_code=404, detail="Track not found")
+    generated = await session.execute(
+        select(CoverAsset).where(
+            CoverAsset.owner_type == "track",
+            CoverAsset.owner_id == item.id,
+            CoverAsset.selected.is_(True),
+        )
+    )
+    selected = generated.scalar_one_or_none()
+    if selected and Path(selected.path).is_file():
+        return FileResponse(
+            selected.path,
+            media_type=selected.mime,
+            headers={"Cache-Control": "private, max-age=31536000, immutable"},
+        )
     try:
         from mutagen.flac import FLAC
 

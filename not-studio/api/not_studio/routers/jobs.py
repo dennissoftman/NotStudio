@@ -10,6 +10,8 @@ from ..constants import utcnow
 from ..deps import get_or_404, get_session
 from ..models import HistoryItem, Job
 from ..tasks.jobs import generate_tracks_job
+from ..tasks.planning import plan_album_job
+from ..tasks.artwork import generate_covers_job
 from ..tasks.registry import cancel_job_task, start_job_task
 from ..tasks.events import jobs_version, notify_jobs_changed, wait_for_jobs_changed
 
@@ -78,6 +80,16 @@ async def cancel(job_id: str, session: AsyncSession = Depends(get_session)) -> J
     job.finished_at = utcnow()
     job.message = "Cancellation requested"
     session.add(job)
+    run_id = (job.params or {}).get("generation_run_id") or (job.params or {}).get("run_id")
+    if run_id:
+        from ..models import GenerationRun
+
+        run = await session.get(GenerationRun, run_id)
+        if run:
+            run.status = "cancelled"
+            run.stage = "cancelled"
+            run.updated_at = utcnow()
+            session.add(run)
     await session.commit()
     await session.refresh(job)
     cancel_job_task(job_id)
@@ -94,6 +106,9 @@ async def retry(job_id: str, session: AsyncSession = Depends(get_session)) -> Jo
         raise HTTPException(status_code=409, detail="Only failed or cancelled jobs can be retried")
     runners = {
         "generate_tracks": generate_tracks_job,
+        "generate_album_pipeline": generate_tracks_job,
+        "plan_album": plan_album_job,
+        "generate_covers": generate_covers_job,
     }
     runner = runners.get(original.type)
     if runner is None:

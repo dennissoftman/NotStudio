@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "production": "vite build && vite preview --host 0.0.0.0 --port 8080",
-    "lint": "tsc -b --noEmit"
+    "lint": "tsc -b"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",

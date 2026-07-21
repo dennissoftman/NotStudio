@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 
 from not_studio.tasks.processes import (
+    model_process_status,
     run_in_process,
+    run_in_model_process,
     run_in_reusable_process,
     shutdown_reusable_processes,
 )
@@ -53,6 +55,17 @@ async def test_reusable_process_keeps_child_state_between_calls():
         await shutdown_reusable_processes()
 
     assert (first, second) == (1, 2)
+
+
+async def test_model_process_reuses_one_family_and_swaps_for_another():
+    try:
+        first = await run_in_model_process("family-a", _increment_counter)
+        second = await run_in_model_process("family-a", _increment_counter)
+        swapped = await run_in_model_process("family-b", _increment_counter)
+        assert model_process_status()["family"] == "family-b"
+    finally:
+        await shutdown_reusable_processes()
+    assert (first, second, swapped) == (1, 2, 1)
 
 
 async def test_run_in_process_terminates_child_on_cancellation(tmp_path):
